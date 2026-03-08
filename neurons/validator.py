@@ -168,6 +168,9 @@ class Validator(
                         },
                         "miner_rewards": miner_rewards_out,
                     }
+                    post_consensus_json_in = round_data.get("post_consensus_json")
+                    if isinstance(post_consensus_json_in, dict):
+                        round_out["post_consensus_json"] = dict(post_consensus_json_in)
                     if decision_out:
                         round_out["decision"] = decision_out
                     rounds_out[str(round_i)] = round_out
@@ -212,6 +215,21 @@ class Validator(
                 "best_round_by_miner": best_round_by_miner_out,
                 "last_eligible_uids": [int(uid) for uid in (summary_in.get("last_eligible_uids", []) or []) if uid is not None],
             }
+            current_winner_snapshot_in = summary_in.get("current_winner_snapshot")
+            if isinstance(current_winner_snapshot_in, dict):
+                summary_out["current_winner_snapshot"] = dict(current_winner_snapshot_in)
+            best_snapshot_by_miner_in = summary_in.get("best_snapshot_by_miner", {})
+            if isinstance(best_snapshot_by_miner_in, dict):
+                best_snapshot_by_miner_out: dict[str, dict] = {}
+                for uid, snapshot in best_snapshot_by_miner_in.items():
+                    try:
+                        uid_i = int(uid)
+                    except Exception:
+                        continue
+                    if isinstance(snapshot, dict):
+                        best_snapshot_by_miner_out[str(uid_i)] = dict(snapshot)
+                if best_snapshot_by_miner_out:
+                    summary_out["best_snapshot_by_miner"] = best_snapshot_by_miner_out
 
             serialized[str(season_i)] = {
                 "rounds": rounds_out,
@@ -367,6 +385,9 @@ class Validator(
                             "winner": {"miner_uid": winner_uid, "reward": winner_reward},
                             "miner_rewards": miner_rewards_loaded,
                         }
+                        post_consensus_json_in = round_data.get("post_consensus_json")
+                        if isinstance(post_consensus_json_in, dict):
+                            round_out["post_consensus_json"] = dict(post_consensus_json_in)
                         decision_in = round_data.get("decision", {})
                         if isinstance(decision_in, dict):
                             round_out["decision"] = dict(decision_in)
@@ -406,6 +427,20 @@ class Validator(
                         "best_round_by_miner": best_round_by_miner_loaded,
                         "last_eligible_uids": [int(uid) for uid in (summary_in.get("last_eligible_uids", []) or []) if uid is not None],
                     }
+                    current_winner_snapshot = summary_in.get("current_winner_snapshot")
+                    if isinstance(current_winner_snapshot, dict):
+                        summary_loaded["current_winner_snapshot"] = dict(current_winner_snapshot)
+
+                    best_snapshot_by_miner_loaded: dict[int, dict] = {}
+                    for uid_key, snapshot in (summary_in.get("best_snapshot_by_miner", {}) or {}).items():
+                        try:
+                            uid_i = int(uid_key)
+                        except Exception:
+                            continue
+                        if isinstance(snapshot, dict):
+                            best_snapshot_by_miner_loaded[uid_i] = dict(snapshot)
+                    if best_snapshot_by_miner_loaded:
+                        summary_loaded["best_snapshot_by_miner"] = best_snapshot_by_miner_loaded
             else:
                 # Backward compatibility for old shape:
                 # seasons.<s>.miners + seasons.<s>.round_winners
