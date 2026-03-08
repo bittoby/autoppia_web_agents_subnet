@@ -166,9 +166,6 @@ class AgentRunIWAP:
     rank: Optional[int] = None
     weight: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    # Reused run: same code as previous round, no re-evaluation
-    is_reused: bool = False
-    reused_from_agent_run_id: Optional[str] = None
     # Reason for score 0 when applicable (e.g. task_timeout, over_cost_limit); copied from source when reused
     zero_reason: Optional[str] = None
 
@@ -258,9 +255,6 @@ class FinishRoundAgentRunIWAP:
     tasks_failed: Optional[int] = None
     # Reason for score 0 when applicable (e.g. over_cost_limit, deploy_failed, all_tasks_failed)
     zero_reason: Optional[str] = None
-    # Reuse: same (repo, commit) already evaluated in a previous round this season
-    is_reused: bool = False
-    reused_from_agent_run_id: Optional[str] = None
 
     def to_payload(self) -> Dict[str, Any]:
         return _drop_nones(asdict(self))
@@ -282,8 +276,6 @@ class RoundMetadataIWAP:
     miners_responded_handshake: int  # miners that answered the round handshake
     miners_evaluated: int  # miners that had at least one task evaluated (appear in rewards)
     emission: Optional[Dict[str, Any]] = None
-    # Miners that were not re-evaluated this round (same git commit as last evaluated round)
-    miners_reused_same_commit: Optional[List[int]] = None
     # Round/season config: backend persists to config_season_round table (main validator only) so dashboard uses validator timing
     round_size_epochs: Optional[float] = None
     season_size_epochs: Optional[float] = None

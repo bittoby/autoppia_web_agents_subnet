@@ -87,6 +87,7 @@ def _payload_log_summary(payload: dict) -> dict:
     rewards = out.get("rewards")
     scores = out.get("scores")
     metrics = out.get("miner_metrics")
+    miners = out.get("miners")
 
     def _summarize_rewards_map(raw: Any) -> str | None:
         if not isinstance(raw, dict):
@@ -116,6 +117,9 @@ def _payload_log_summary(payload: dict) -> dict:
             if isinstance(entry, dict) and entry.get("handshake_ok") is True:
                 handshake_ok += 1
         out["miner_metrics"] = f"<{len(metrics)} miners, handshake_ok={handshake_ok}>"
+
+    if isinstance(miners, list) and len(miners) > 10:
+        out["miners"] = f"<{len(miners)} miners>"
 
     return out
 
@@ -158,104 +162,87 @@ def _eligibility_status_is_valid(status: Any) -> bool:
     return str(status or "").strip().lower() in {"handshake_valid", "reused", "evaluated"}
 
 
-def _build_snapshot_miner_metrics(self, rewards: Dict[str, float]) -> Dict[str, Dict[str, Any]]:
-    """Build per-miner metrics snapshot included in IPFS payload."""
-    metrics: Dict[str, Dict[str, Any]] = {}
-    run_map = getattr(self, "current_agent_runs", None) or {}
-    handshake_results = getattr(self, "handshake_results", None) or {}
-    eligibility_statuses = getattr(self, "eligibility_status_by_uid", None) or {}
+def _extract_metrics_from_payload(payload: Dict[str, Any]) -> tuple[Dict[int, float], Dict[int, Dict[str, Any]]]:
+    rewards: Dict[int, float] = {}
+    metrics: Dict[int, Dict[str, Any]] = {}
 
-    candidate_uids: set[int] = set()
-    for uid_raw in rewards.keys():
-        try:
-            candidate_uids.add(int(uid_raw))
-        except Exception:
-            continue
-    for uid_raw in run_map.keys():
-        try:
-            candidate_uids.add(int(uid_raw))
-        except Exception:
-            continue
-    if isinstance(handshake_results, dict):
-        for uid_raw in handshake_results.keys():
+    miners = payload.get("miners")
+    if isinstance(miners, list):
+        for miner_entry in miners:
+            if not isinstance(miner_entry, dict):
+                continue
+            miner_uid = miner_entry.get("uid") or miner_entry.get("miner_uid")
             try:
-                candidate_uids.add(int(uid_raw))
+                uid = int(miner_uid)
+            except Exception:
+                continue
+            best_run = miner_entry.get("best_run")
+            if not isinstance(best_run, dict):
+                best_run = None
+            reward = 0.0
+            score = 0.0
+            avg_time = 0.0
+            avg_cost = 0.0
+            tasks_received = 0
+            tasks_success = 0
+            if best_run is not None:
+                try:
+                    reward = float(best_run.get("reward", 0.0) or 0.0)
+                except Exception:
+                    reward = 0.0
+                try:
+                    score = float(best_run.get("score", 0.0) or 0.0)
+                except Exception:
+                    score = 0.0
+                try:
+                    avg_time = float(best_run.get("time", 0.0) or 0.0)
+                except Exception:
+                    avg_time = 0.0
+                try:
+                    avg_cost = float(best_run.get("cost", 0.0) or 0.0)
+                except Exception:
+                    avg_cost = 0.0
+                try:
+                    tasks_received = int(best_run.get("tasks_received", 0) or 0)
+                except Exception:
+                    tasks_received = 0
+                try:
+                    tasks_success = int(best_run.get("tasks_success", 0) or 0)
+                except Exception:
+                    tasks_success = 0
+            rewards[uid] = reward
+            metrics[uid] = {
+                "avg_reward": reward,
+                "avg_eval_score": score,
+                "avg_eval_time": avg_time,
+                "avg_cost": avg_cost,
+                "tasks_sent": tasks_received,
+                "tasks_success": tasks_success,
+            }
+        return rewards, metrics
+
+    rewards_raw = payload.get("rewards")
+    if not isinstance(rewards_raw, dict):
+        rewards_raw = payload.get("scores")
+    if isinstance(rewards_raw, dict):
+        for uid_raw, value_raw in rewards_raw.items():
+            try:
+                uid = int(uid_raw)
+                rewards[uid] = float(value_raw)
             except Exception:
                 continue
 
-    for uid in sorted(candidate_uids):
-        run = run_map.get(uid)
-        run_meta = getattr(run, "metadata", {}) if run is not None else {}
-        if not isinstance(run_meta, dict):
-            run_meta = {}
-        handshake_status = None
-        if isinstance(handshake_results, dict):
-            handshake_status = handshake_results.get(uid)
-            if handshake_status is None:
-                handshake_status = handshake_results.get(str(uid))
-        if handshake_status is None:
-            handshake_status = "unknown"
-        eligibility_status = None
-        if isinstance(eligibility_statuses, dict):
-            eligibility_status = eligibility_statuses.get(uid)
-            if eligibility_status is None:
-                eligibility_status = eligibility_statuses.get(str(uid))
-        if eligibility_status is None:
-            eligibility_status = handshake_status
-        reward_val = float(rewards.get(str(uid), 0.0))
-
-        avg_eval_score = None
-        avg_eval_time = None
-        avg_cost = None
-        tasks_sent = 0
-        tasks_success = 0
-        tasks_failed = 0
-        if run is not None:
+    miner_metrics = payload.get("miner_metrics")
+    if isinstance(miner_metrics, dict):
+        for uid_raw, entry_raw in miner_metrics.items():
+            if not isinstance(entry_raw, dict):
+                continue
             try:
-                avg_eval_score = float(getattr(run, "average_score", None))
+                uid = int(entry_raw.get("miner_uid", uid_raw))
             except Exception:
-                avg_eval_score = None
-            try:
-                avg_eval_time = float(getattr(run, "average_execution_time", None))
-            except Exception:
-                avg_eval_time = None
-            try:
-                avg_cost = float(run_meta.get("average_cost"))
-            except Exception:
-                avg_cost = None
-            try:
-                tasks_sent = int(getattr(run, "total_tasks", 0) or 0)
-            except Exception:
-                tasks_sent = 0
-            try:
-                tasks_success = int(getattr(run, "completed_tasks", 0) or 0)
-            except Exception:
-                tasks_success = 0
-            try:
-                tasks_failed = int(getattr(run, "failed_tasks", 0) or 0)
-            except Exception:
-                tasks_failed = max(tasks_sent - tasks_success, 0)
-            if tasks_failed <= 0:
-                tasks_failed = max(tasks_sent - tasks_success, 0)
-
-        metrics[str(uid)] = {
-            "miner_uid": int(uid),
-            "reward": float(reward_val),
-            "avg_reward": float(reward_val),
-            "avg_eval_score": float(avg_eval_score) if avg_eval_score is not None else None,
-            "avg_eval_time": float(avg_eval_time) if avg_eval_time is not None else None,
-            "avg_cost": float(avg_cost) if avg_cost is not None else None,
-            "tasks_sent": int(tasks_sent),
-            "tasks_success": int(tasks_success),
-            "tasks_failed": int(tasks_failed),
-            "handshake_status": str(handshake_status),
-            "handshake_ok": bool(handshake_status == "ok"),
-            "eligibility_status": str(eligibility_status),
-            "eligible_this_round": bool(_eligibility_status_is_valid(eligibility_status)),
-            "is_reused": bool(getattr(run, "is_reused", False)) if run is not None else False,
-        }
-
-    return metrics
+                continue
+            metrics[uid] = entry_raw
+    return rewards, metrics
 
 
 def _hotkey_to_uid_map(metagraph) -> Dict[str, int]:
@@ -298,35 +285,30 @@ async def publish_round_snapshot(
     boundaries = self.round_manager.get_current_boundaries()
     start_epoch = int(boundaries["round_start_epoch"])
     target_epoch = int(boundaries["round_target_epoch"])
-    rewards = _normalize_rewards_map(scores)
-    # Build scores = average evaluation score (0-1) per miner, not the consensus reward.
-    # So "scores" = raw avg eval score (e.g. 0.4, 0.3, 0), "rewards" = consensus/normalized reward.
-    eval_scores_map: Dict[str, float] = {}
-    run_map = getattr(self, "current_agent_runs", None) or {}
-    for uid_raw, run in run_map.items():
+    _ = scores
+    miners_payload = []
+    active_uids = sorted({int(uid) for uid in (getattr(self, "active_miner_uids", None) or [])} | {int(uid) for uid in (getattr(self, "current_agent_runs", None) or {}).keys()})
+    for uid in active_uids:
+        miner_hotkey = None
         try:
-            uid_str = str(int(uid_raw))
-            avg = getattr(run, "average_score", None)
-            if avg is not None:
-                eval_scores_map[uid_str] = float(avg)
-            else:
-                # Fallback: average of round_eval_scores for this uid
-                rm = getattr(self, "round_manager", None)
-                res = getattr(rm, "round_eval_scores", None) or {}
-                lst = res.get(int(uid_raw)) or res.get(uid_raw) or []
-                if lst:
-                    eval_scores_map[uid_str] = sum(float(x) for x in lst) / len(lst)
-                else:
-                    eval_scores_map[uid_str] = 0.0
+            miner_hotkey = self.metagraph.hotkeys[uid] if uid < len(self.metagraph.hotkeys) else None
         except Exception:
-            pass
-    # Ensure every uid in rewards has an entry in scores (fallback to reward for backward compat)
-    for uid_str in rewards:
-        if uid_str not in eval_scores_map:
-            eval_scores_map[uid_str] = float(rewards.get(uid_str, 0.0))
-    payload_scores = eval_scores_map if eval_scores_map else rewards
-
-    miner_metrics = _build_snapshot_miner_metrics(self, rewards)
+            miner_hotkey = None
+        miner_name = None
+        try:
+            agent_info = getattr(self, "agents_dict", {}).get(uid)
+            miner_name = getattr(agent_info, "agent_name", None)
+        except Exception:
+            miner_name = None
+        miners_payload.append(
+            {
+                "uid": int(uid),
+                "hotkey": miner_hotkey,
+                "miner_name": miner_name,
+                "best_run": getattr(self, "_best_run_payload_for_miner")(uid),
+                "current_run": getattr(self, "_current_round_run_payload")(uid),
+            }
+        )
     handshake_results_raw = getattr(self, "handshake_results", None) or {}
     handshake_results: Dict[str, str] = {}
     eligibility_statuses_raw = getattr(self, "eligibility_status_by_uid", None) or {}
@@ -358,11 +340,7 @@ async def publish_round_snapshot(
         "validator_hotkey": self.wallet.hotkey.ss58_address,
         "validator_round_id": getattr(self, "current_round_id", None),
         "validator_version": getattr(self, "version", None),
-        # rewards = consensus/normalized reward per miner (used for weighting).
-        # scores = average evaluation score (0-1) per miner (raw eval metric).
-        "rewards": rewards,
-        "scores": payload_scores,
-        "miner_metrics": miner_metrics,
+        "miners": miners_payload,
         "handshake_results": handshake_results,
         "eligibility_statuses": eligibility_statuses,
     }
@@ -373,7 +351,7 @@ async def publish_round_snapshot(
         payload_json = json.dumps(_payload_log_summary(payload), separators=(",", ":"), sort_keys=True)
 
         bt.logging.info("=" * 80)
-        bt.logging.info(ipfs_tag("UPLOAD", f"Round {payload.get('r')} | {len(payload.get('rewards', {}))} miners"))
+        bt.logging.info(ipfs_tag("UPLOAD", f"Round {payload.get('r')} | {len(payload.get('miners', []))} miners"))
         bt.logging.info(ipfs_tag("UPLOAD", f"Payload: {payload_json}"))
 
         cid, sha_hex, byte_len = await add_json_async(
@@ -589,10 +567,8 @@ async def aggregate_scores_from_commitments(
             bt.logging.info(f"[IPFS] [DOWNLOAD] Validator {hk[:12]}... (UID {validator_uid}) | CID: {cid}")
             bt.logging.info(f"[IPFS] [DOWNLOAD] URL: http://ipfs.metahash73.com:5001/api/v0/cat?arg={cid}")
             bt.logging.info(f"[IPFS] [DOWNLOAD] Payload: {payload_json}")
-            payload_rewards = payload.get("rewards")
-            if not isinstance(payload_rewards, dict):
-                payload_rewards = payload.get("scores")
-            miner_count = len(payload_rewards) if isinstance(payload_rewards, dict) else 0
+            payload_rewards, payload_metrics = _extract_metrics_from_payload(payload)
+            miner_count = len(payload_rewards)
             bt.logging.success(f"[IPFS] [DOWNLOAD] ✅ SUCCESS - Round {payload.get('r')} | {miner_count} miners | Stake: {st_val:.2f}τ")
             bt.logging.info("=" * 80)
         except Exception as e:
@@ -615,10 +591,8 @@ async def aggregate_scores_from_commitments(
                 bt.logging.debug(f"⏭️ Skip {hk[:10]}…: wrong validator_version (payload has {pv_str}, need {expected_validator_version})")
                 continue
 
-        rewards = payload.get("rewards")
-        if not isinstance(rewards, dict):
-            rewards = payload.get("scores")
-        if not isinstance(rewards, dict):
+        rewards, miner_metrics = _extract_metrics_from_payload(payload)
+        if not isinstance(rewards, dict) or not rewards:
             continue
 
         # Record each validator's published per-miner reward map (converted to int uid).
@@ -634,7 +608,6 @@ async def aggregate_scores_from_commitments(
             weight_total[uid] = weight_total.get(uid, 0.0) + effective_weight
             per_val_map[uid] = val
 
-        miner_metrics = payload.get("miner_metrics")
         if isinstance(miner_metrics, dict):
             for uid_raw, entry_raw in miner_metrics.items():
                 if not isinstance(entry_raw, dict):

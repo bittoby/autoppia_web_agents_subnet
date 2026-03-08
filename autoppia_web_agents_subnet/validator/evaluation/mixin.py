@@ -175,9 +175,11 @@ class ValidatorEvaluationMixin:
                         reward_sum = float(acc.get("reward", 0.0) or 0.0)
                         eval_sum = float(acc.get("eval_score", 0.0) or 0.0)
                         time_sum = float(acc.get("execution_time", 0.0) or 0.0)
+                        cost_sum = float(acc.get("cost", 0.0) or 0.0)
                         avg_score = (eval_sum / tasks) if tasks else (getattr(run, "average_score", None) or 0.0)
                         avg_reward = (reward_sum / tasks) if tasks else (getattr(run, "average_reward", None) or 0.0)
                         avg_time = (time_sum / tasks) if tasks else (getattr(run, "average_execution_time", None) or 0.0)
+                        avg_cost = (cost_sum / tasks) if tasks else 0.0
                         round_rewards = getattr(getattr(self, "round_manager", None), "round_rewards", {}) or {}
                         miner_rewards = round_rewards.get(agent.uid, []) or []  # type: ignore[attr-defined]
                         success_tasks = len([r for r in miner_rewards if float(r) >= 0.5])
@@ -185,6 +187,7 @@ class ValidatorEvaluationMixin:
                             "average_score": avg_score,
                             "average_reward": avg_reward,
                             "average_execution_time": avg_time,
+                            "average_cost": avg_cost,
                             "total_tasks": tasks or len(miner_rewards),
                             "success_tasks": success_tasks,
                             "failed_tasks": (tasks or len(miner_rewards)) - success_tasks,

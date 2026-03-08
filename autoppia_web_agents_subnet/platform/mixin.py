@@ -67,11 +67,8 @@ class ValidatorPlatformMixin:
         self.eligibility_status_by_uid: Dict[int, str] = {}
         self.round_start_timestamp: float = 0.0
         self.agent_run_accumulators: Dict[int, Dict[str, float]] = {}
-        # (repo, commit) already evaluated per miner -> agent_run_id + stats (no re-eval on resubmit)
+        # (repo, commit) already evaluated per miner -> persisted best-run candidate data.
         self._evaluated_commits_by_miner: Dict[int, Dict[str, Dict[str, Any]]] = {}  # uid -> "repo|commit" -> {agent_run_id, ...stats}
-        # Set during handshake when reusing a past run (same commit evaluated in a previous round)
-        self.reused_from_agent_run_id_by_uid: Dict[int, str] = {}
-        self.reused_stats_by_uid: Dict[int, Dict[str, Any]] = {}
         # Track completed (miner_uid, task_id) to avoid duplicates
         self._completed_pairs: Set[Tuple[int, str]] = set()
         # Round-log periodic upload state (best effort, no hard dependency).
@@ -322,7 +319,7 @@ class ValidatorPlatformMixin:
         )
 
     def _iwap_prev_round_path(self) -> Path:
-        """Path to persist prev_round_agent_run_ids / prev_round_run_stats so is_reused survives validator restart."""
+        """Path to persist best-run sources that survive validator restart."""
         try:
             full_path = Path(str(getattr(self, "config", None) and getattr(self.config, "neuron", None) and getattr(self.config.neuron, "full_path", None) or "."))
         except Exception:
@@ -353,7 +350,7 @@ class ValidatorPlatformMixin:
             pass
 
     def _load_iwap_prev_round_state(self) -> None:
-        """Load prev_round_agent_run_ids, prev_round_run_stats and _evaluated_commits_by_miner from disk so is_reused works after restart."""
+        """Load persisted best-run sources from disk after validator restart."""
         try:
             path = self._iwap_prev_round_path()
             if not path.exists():
@@ -411,8 +408,6 @@ class ValidatorPlatformMixin:
         self.agent_run_accumulators = {}
         self._completed_pairs = set()
         self._phases = {"p1_done": False, "p2_done": False}
-        self.reused_from_agent_run_id_by_uid = {}
-        self.reused_stats_by_uid = {}
         self._s3_task_log_urls = []
         self._round_log_last_upload_ts = 0.0
         self._round_log_last_uploaded_size = -1
@@ -429,8 +424,94 @@ class ValidatorPlatformMixin:
         # This prevents reusing stale values when discarding old round state
         self._current_round_number = None
 
-        # Persist prev_round so after validator restart we still send is_reused/reused_from_agent_run_id
+        # Persist historical best-run sources for the next round / next process start.
         self._save_iwap_prev_round_state()
+
+    @staticmethod
+    def _round_metrics_payload_from_stats(stats: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(stats, dict):
+            return None
+        try:
+            reward = float(stats.get("average_reward", 0.0) or 0.0)
+            score = float(stats.get("average_score", 0.0) or 0.0)
+            avg_time = float(stats.get("average_execution_time", 0.0) or 0.0)
+            avg_cost = float(stats.get("average_cost", 0.0) or 0.0)
+            tasks_received = int(stats.get("total_tasks", 0) or 0)
+            tasks_success = int(stats.get("success_tasks", 0) or 0)
+        except Exception:
+            return None
+        return {
+            "reward": reward,
+            "score": score,
+            "time": avg_time,
+            "cost": avg_cost,
+            "tasks_received": tasks_received,
+            "tasks_success": tasks_success,
+            "season": (int(stats["evaluated_season"]) if stats.get("evaluated_season") is not None else None),
+            "round": (int(stats["evaluated_round"]) if stats.get("evaluated_round") is not None else None),
+        }
+
+    def _current_round_run_payload(self, uid: int) -> Optional[Dict[str, Any]]:
+        run = (getattr(self, "current_agent_runs", None) or {}).get(uid)
+        if run is None:
+            return None
+        acc = (getattr(self, "agent_run_accumulators", None) or {}).get(uid, {})
+        round_rewards = getattr(getattr(self, "round_manager", None), "round_rewards", {}) or {}
+        miner_rewards = round_rewards.get(uid, []) or []
+        total_tasks = int(acc.get("tasks", 0) or getattr(run, "total_tasks", 0) or len(miner_rewards))
+        success_tasks = int(getattr(run, "completed_tasks", 0) or len([reward for reward in miner_rewards if float(reward) >= 0.5]))
+        failed_tasks = int(getattr(run, "failed_tasks", 0) or max(total_tasks - success_tasks, 0))
+        if total_tasks > 0:
+            avg_reward = float(acc.get("reward", 0.0) or 0.0) / float(total_tasks)
+            avg_score = float(acc.get("eval_score", 0.0) or 0.0) / float(total_tasks)
+            avg_time = float(acc.get("execution_time", 0.0) or 0.0) / float(total_tasks)
+            avg_cost = float(acc.get("cost", 0.0) or 0.0) / float(total_tasks)
+        else:
+            avg_reward = float(getattr(run, "average_reward", 0.0) or 0.0)
+            avg_score = float(getattr(run, "average_score", 0.0) or 0.0)
+            avg_time = float(getattr(run, "average_execution_time", 0.0) or 0.0)
+            run_meta = getattr(run, "metadata", {}) or {}
+            avg_cost = float(run_meta.get("average_cost", 0.0) or 0.0) if isinstance(run_meta, dict) else 0.0
+        return {
+            "reward": avg_reward,
+            "score": avg_score,
+            "time": avg_time,
+            "cost": avg_cost,
+            "tasks_received": total_tasks,
+            "tasks_success": success_tasks,
+            "failed_tasks": failed_tasks,
+            "season": int(getattr(getattr(self, "season_manager", None), "season_number", 0) or 0),
+            "round": int(getattr(getattr(self, "round_manager", None), "round_number", 0) or 0),
+            "zero_reason": getattr(run, "zero_reason", None),
+        }
+
+    def _best_run_payload_for_miner(self, uid: int) -> Optional[Dict[str, Any]]:
+        best_payload: Optional[Dict[str, Any]] = None
+        best_key: tuple[float, float, float] | None = None
+        commits_by_miner = (getattr(self, "_evaluated_commits_by_miner", None) or {}).get(uid, {})
+        if isinstance(commits_by_miner, dict):
+            for stats in commits_by_miner.values():
+                payload = self._round_metrics_payload_from_stats(stats)
+                if payload is None:
+                    continue
+                key = (
+                    float(payload.get("reward", 0.0) or 0.0),
+                    float(payload.get("score", 0.0) or 0.0),
+                    -float(payload.get("time", 0.0) or 0.0),
+                )
+                if best_key is None or key > best_key:
+                    best_key = key
+                    best_payload = payload
+        current_payload = self._current_round_run_payload(uid)
+        if current_payload is not None:
+            current_key = (
+                float(current_payload.get("reward", 0.0) or 0.0),
+                float(current_payload.get("score", 0.0) or 0.0),
+                -float(current_payload.get("time", 0.0) or 0.0),
+            )
+            if best_key is None or current_key > best_key:
+                best_payload = {k: v for k, v in current_payload.items() if k != "failed_tasks" and k != "zero_reason"}
+        return best_payload
 
     def _register_evaluated_commit(
         self,

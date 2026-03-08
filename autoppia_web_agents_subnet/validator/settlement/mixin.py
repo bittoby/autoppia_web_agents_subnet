@@ -135,33 +135,7 @@ class ValidatorSettlementMixin:
             )
         else:
             st = await self._get_async_subtensor()
-            # Build the IPFS rewards snapshot.
-            # Only include miners that actually participated in this round (active_miner_uids),
-            # not every miner ever tracked in agents_dict.  Using only handshake participants
-            # prevents stale/historical zero-score miners from inflating the rank pool and
-            # misplacing reused miners with genuine positive scores.
-            #
-            # For reused miners (same commit, no re-evaluation), use the reward from their
-            # reused run's stats instead of agent.score, which may be 0 when the original
-            # evaluation failed (e.g. over_cost_limit) but the miner has since recovered.
-            _active_uids_for_ipfs = set(getattr(self, "active_miner_uids", None) or [])
-            _reused_stats: dict = getattr(self, "reused_stats_by_uid", None) or {}
-            _miners_reused: set = getattr(self, "miners_reused_this_round", None) or set()
-            _agents: dict = getattr(self, "agents_dict", None) or {}
-            _ipfs_scores: dict[str, float] = {}
-            for uid, agent in _agents.items():
-                if _active_uids_for_ipfs and int(uid) not in _active_uids_for_ipfs:
-                    continue
-                base_score = float(getattr(agent, "score", 0.0) or 0.0)
-                if int(uid) in _miners_reused:
-                    reused = _reused_stats.get(int(uid)) or {}
-                    reused_reward = reused.get("average_reward")
-                    if reused_reward is None:
-                        reused_reward = reused.get("avg_reward")
-                    if isinstance(reused_reward, (int, float)) and float(reused_reward) > base_score:
-                        base_score = float(reused_reward)
-                _ipfs_scores[str(int(uid))] = base_score
-            await publish_round_snapshot(self, st=st, scores=_ipfs_scores)
+            await publish_round_snapshot(self, st=st, scores={})
 
             fetch_fraction = float(
                 getattr(

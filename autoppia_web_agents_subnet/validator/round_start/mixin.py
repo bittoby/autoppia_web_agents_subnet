@@ -811,17 +811,6 @@ class ValidatorRoundStartMixin:
                         pass
                     elif has_prior_evaluation:
                         # Keep score/evaluated, but allow display metadata to update.
-                        # Use _evaluated_commits_by_miner so reused_from points to the FIRST evaluated run, not the previous round (which may be reused).
-                        evaluated_map = getattr(self, "_evaluated_commits_by_miner", None) or {}
-                        key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
-                        stored = (evaluated_map.get(uid) or {}).get(key)
-                        if isinstance(stored, dict) and stored.get("agent_run_id"):
-                            if not isinstance(getattr(self, "reused_from_agent_run_id_by_uid", None), dict):
-                                self.reused_from_agent_run_id_by_uid = {}
-                            if not isinstance(getattr(self, "reused_stats_by_uid", None), dict):
-                                self.reused_stats_by_uid = {}
-                            self.reused_from_agent_run_id_by_uid[uid] = str(stored["agent_run_id"])
-                            self.reused_stats_by_uid[uid] = {k: v for k, v in stored.items() if k != "agent_run_id"}
                         try:
                             existing.agent_name = agent_info.agent_name
                             existing.agent_image = agent_info.agent_image
@@ -851,16 +840,9 @@ class ValidatorRoundStartMixin:
                     key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
                     stored = (evaluated_map.get(uid) or {}).get(key)
                     if isinstance(stored, dict) and stored.get("agent_run_id"):
-                        if not isinstance(getattr(self, "reused_from_agent_run_id_by_uid", None), dict):
-                            self.reused_from_agent_run_id_by_uid = {}
-                        if not isinstance(getattr(self, "reused_stats_by_uid", None), dict):
-                            self.reused_stats_by_uid = {}
-                        ref_run_id = str(stored["agent_run_id"])
-                        self.reused_from_agent_run_id_by_uid[uid] = ref_run_id
-                        self.reused_stats_by_uid[uid] = {k: v for k, v in stored.items() if k != "agent_run_id"}
                         self.miners_reused_this_round.add(uid)
                         self.eligibility_status_by_uid[int(uid)] = "reused"
-                        bt.logging.info(f"[reuse] Miner {uid}: same (repo, commit) as previous run {ref_run_id}; reusing results (no re-eval).")
+                        bt.logging.info(f"[reuse] Miner {uid}: same (repo, commit) as a previous evaluated run; keeping best historical result (no re-eval).")
                         try:
                             existing.agent_name = agent_info.agent_name
                             existing.agent_image = agent_info.agent_image
@@ -911,16 +893,9 @@ class ValidatorRoundStartMixin:
                 key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
                 stored = (evaluated_map.get(uid) or {}).get(key)
                 if isinstance(stored, dict) and stored.get("agent_run_id"):
-                    if not isinstance(getattr(self, "reused_from_agent_run_id_by_uid", None), dict):
-                        self.reused_from_agent_run_id_by_uid = {}
-                    if not isinstance(getattr(self, "reused_stats_by_uid", None), dict):
-                        self.reused_stats_by_uid = {}
-                    ref_run_id = str(stored["agent_run_id"])
-                    self.reused_from_agent_run_id_by_uid[uid] = ref_run_id
-                    self.reused_stats_by_uid[uid] = {k: v for k, v in stored.items() if k != "agent_run_id"}
                     self.miners_reused_this_round.add(uid)
                     self.eligibility_status_by_uid[int(uid)] = "reused"
-                    bt.logging.info(f"[reuse] Miner {uid}: same (repo, commit) as previous run {ref_run_id}; reusing results (no re-eval).")
+                    bt.logging.info(f"[reuse] Miner {uid}: same (repo, commit) as a previous evaluated run; keeping best historical result (no re-eval).")
                     self.agents_dict[uid] = agent_info
                     unchanged_commit_skip_count += 1
                     continue

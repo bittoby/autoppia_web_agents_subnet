@@ -831,66 +831,36 @@ async def register_participating_miners_in_iwap(ctx) -> None:
 
         agent_run_id = iwa_main.generate_agent_run_id(miner_uid)
         miners_reused = getattr(ctx, "miners_reused_this_round", None) or set()
-        prev_run_ids = getattr(ctx, "prev_round_agent_run_ids", None) or {}
-        prev_stats = getattr(ctx, "prev_round_run_stats", None) or {}
-        # Always use the FIRST evaluated run as reused_from (handshake sets this from _evaluated_commits_by_miner).
-        # prev_run_ids is only fallback (e.g. after restart before handshake); handshake ensures all reused runs point to the same origin.
-        reused_from_id = getattr(ctx, "reused_from_agent_run_id_by_uid", None) or {}
-        reused_from_id = reused_from_id.get(miner_uid) or prev_run_ids.get(miner_uid)
-        reused_stats = getattr(ctx, "reused_stats_by_uid", None) or {}
-        prev_s = reused_stats.get(miner_uid) or prev_stats.get(miner_uid)
-        is_reused = miner_uid in miners_reused and reused_from_id
+        is_historical_only = miner_uid in miners_reused
 
-        if is_reused and reused_from_id and prev_s:
-            reused_meta = {"handshake_note": "reused", "reused_from_round": reused_from_id}
-            try:
-                avg_cost_prev = prev_s.get("average_cost")
-                if avg_cost_prev is None:
-                    avg_cost_prev = prev_s.get("avg_cost")
-                if avg_cost_prev is not None:
-                    reused_meta["average_cost"] = float(avg_cost_prev)
-            except Exception:
-                pass
-            agent_run = iwa_models.AgentRunIWAP(
-                agent_run_id=agent_run_id,
-                validator_round_id=ctx.current_round_id,
-                validator_uid=int(ctx.uid),
-                validator_hotkey=validator_identity.hotkey,
-                miner_uid=miner_uid,
-                miner_hotkey=miner_hotkey,
-                is_sota=False,
-                version=None,
-                started_at=now_ts,
-                metadata=reused_meta,
-                is_reused=True,
-                reused_from_agent_run_id=reused_from_id,
-                average_score=prev_s.get("average_score"),
-                average_execution_time=prev_s.get("average_execution_time"),
-                average_reward=prev_s.get("average_reward"),
-                total_tasks=prev_s.get("total_tasks", 0),
-                completed_tasks=prev_s.get("success_tasks", 0),
-                failed_tasks=prev_s.get("failed_tasks", 0),
-                zero_reason=prev_s.get("zero_reason"),
+        if is_historical_only:
+            ctx.current_miner_snapshots[miner_uid] = miner_snapshot
+            ctx.agent_run_accumulators.setdefault(
+                miner_uid,
+                {"reward": 0.0, "eval_score": 0.0, "execution_time": 0.0, "cost": 0.0, "tasks": 0},
             )
-        else:
-            agent_run = iwa_models.AgentRunIWAP(
-                agent_run_id=agent_run_id,
-                validator_round_id=ctx.current_round_id,
-                validator_uid=int(ctx.uid),
-                validator_hotkey=validator_identity.hotkey,
-                miner_uid=miner_uid,
-                miner_hotkey=miner_hotkey,
-                is_sota=False,
-                version=None,
-                started_at=now_ts,
-                metadata={"handshake_note": getattr(handshake_payload, "note", None)},
+            log_iwap_phase(
+                "Phase 3",
+                f"Skipping start_agent_run for miner_uid={miner_uid}; keeping best historical run for this round",
+                level="info",
             )
+            continue
+
+        agent_run = iwa_models.AgentRunIWAP(
+            agent_run_id=agent_run_id,
+            validator_round_id=ctx.current_round_id,
+            validator_uid=int(ctx.uid),
+            validator_hotkey=validator_identity.hotkey,
+            miner_uid=miner_uid,
+            miner_hotkey=miner_hotkey,
+            is_sota=False,
+            version=None,
+            started_at=now_ts,
+            metadata={"handshake_note": getattr(handshake_payload, "note", None)},
+        )
 
         try:
-            if is_reused and reused_from_id:
-                start_agent_run_message = f"Calling start_agent_run for miner_uid={miner_uid}, agent_run_id={agent_run_id} (reused from {reused_from_id})"
-            else:
-                start_agent_run_message = f"Calling start_agent_run for miner_uid={miner_uid}, agent_run_id={agent_run_id}"
+            start_agent_run_message = f"Calling start_agent_run for miner_uid={miner_uid}, agent_run_id={agent_run_id}"
             log_iwap_phase("Phase 3", start_agent_run_message)
             try:
                 await ctx.iwap_client.start_agent_run(
@@ -941,10 +911,7 @@ async def register_participating_miners_in_iwap(ctx) -> None:
             log_iwap_phase("Phase 3", start_agent_run_error, level="error", exc_info=False)
             continue
         else:
-            if is_reused and reused_from_id:
-                start_agent_run_success = f"start_agent_run completed for miner_uid={miner_uid} (reused from {reused_from_id})"
-            else:
-                start_agent_run_success = f"start_agent_run completed for miner_uid={miner_uid}, agent_run_id={agent_run_id}"
+            start_agent_run_success = f"start_agent_run completed for miner_uid={miner_uid}, agent_run_id={agent_run_id}"
             log_iwap_phase("Phase 3", start_agent_run_success, level="success")
             # Update local state for bookkeeping
             ctx.current_agent_runs[miner_uid] = agent_run
@@ -1079,131 +1046,126 @@ async def finish_round_flow(
             total_cost = 0.0
         local_avg_costs[int(uid)] = float(total_cost / total_tasks) if total_tasks > 0 else 0.0
 
-    # Calculate ranks with LOCAL scores + time as tiebreaker
-    # Build list of (uid, score, avg_time) for each miner
-    miners_with_time = []
     round_times = getattr(ctx.round_manager, "round_times", {}) or {}
-    for uid, score in local_avg_rewards.items():
-        times = round_times.get(uid, []) or []
-        avg_time = sum(times) / len(times) if times else 999999.0  # High time if no data
-        miners_with_time.append((uid, score, avg_time))
-
-    # Sort by score (desc), then by time (asc) for tiebreaker
-    sorted_miners_local = sorted(miners_with_time, key=lambda x: (-x[1], x[2]))  # -score (desc), time (asc)
-    rank_map_local = {uid: rank for rank, (uid, _score, _time) in enumerate(sorted_miners_local, start=1)}
-
-    # Build local_evaluation (pre-consensus) - without weight
-    # local_avg_rewards: Dict[uid -> avg_reward] where avg_reward = average of all rewards for that miner
+    participant_uids = sorted({int(uid) for uid in (getattr(ctx, "active_miner_uids", []) or [])} | {int(uid) for uid in (getattr(ctx, "current_agent_runs", {}) or {}).keys()})
+    local_reward_candidates: list[tuple[int, float, float]] = []
     local_evaluation_miners = []
     local_stats_by_miner: Dict[int, Dict[str, Any]] = {}
+    local_best_rewards: Dict[int, float] = {}
 
-    # Guardar local_evaluation antes de finish_round para que pueda ser incluido en IPFS
-    # (se construye aquí porque necesitamos los datos antes de que termine el round)
-    for miner_uid, agent_run in ctx.current_agent_runs.items():
-        # Use LOCAL rank for local_evaluation (consistent with local scores)
-        rank_value = rank_map_local.get(miner_uid)
-        is_reused = getattr(agent_run, "is_reused", False)
+    for miner_uid in participant_uids:
+        best_run = getattr(ctx, "_best_run_payload_for_miner")(miner_uid)
+        current_run = getattr(ctx, "_current_round_run_payload")(miner_uid)
+        effective_run = best_run or current_run
+        if effective_run is None:
+            effective_run = {
+                "reward": float(local_avg_rewards.get(miner_uid, 0.0) or 0.0),
+                "score": float(local_avg_eval_scores.get(miner_uid, 0.0) or 0.0),
+                "time": 0.0,
+                "cost": float(local_avg_costs.get(miner_uid, 0.0) or 0.0),
+                "tasks_received": 0,
+                "tasks_success": 0,
+                "season": season_number_for_summary,
+                "round": round_number_for_summary,
+            }
 
-        if is_reused:
-            # Reused run: no evaluations this round; use stats from the source run (agent_run was filled from reused_stats)
-            avg_reward_value = getattr(agent_run, "average_reward", None) or local_avg_rewards.get(miner_uid, 0.0)
-            miner_tasks_attempted = getattr(agent_run, "total_tasks", 0) or 0
-            miner_tasks_completed = getattr(agent_run, "completed_tasks", 0) or getattr(agent_run, "success_tasks", 0) or 0
-            miner_tasks_failed = getattr(agent_run, "failed_tasks", 0) or max(0, miner_tasks_attempted - miner_tasks_completed)
-            avg_time = getattr(agent_run, "average_execution_time", None) or 0.0
-            run_meta = getattr(agent_run, "metadata", {}) or {}
-            if not isinstance(run_meta, dict):
-                run_meta = {}
-            try:
-                avg_cost = float(run_meta.get("average_cost", 0.0) or 0.0)
-            except Exception:
-                avg_cost = 0.0
-        else:
-            # Use LOCAL avg_reward (pre-consensus) for local_evaluation
-            avg_reward_value = local_avg_rewards.get(miner_uid, 0.0)
-            # Calculate tasks completed/failed (safe access)
-            round_rewards = getattr(ctx.round_manager, "round_rewards", {}) or {}
-            miner_rewards = round_rewards.get(miner_uid, []) or []
-            miner_tasks_attempted = len(miner_rewards)
-            miner_tasks_completed = len([r for r in miner_rewards if r >= 0.5])
-            miner_tasks_failed = miner_tasks_attempted - miner_tasks_completed
-            # Calculate avg evaluation time (safe access)
-            round_times = getattr(ctx.round_manager, "round_times", {}) or {}
+        try:
+            reward_value = float(effective_run.get("reward", 0.0) or 0.0)
+        except Exception:
+            reward_value = 0.0
+        try:
+            avg_time = float(effective_run.get("time", 0.0) or 0.0)
+        except Exception:
             times = round_times.get(miner_uid, []) or []
-            avg_time = sum(times) / len(times) if times else 0.0
-            avg_cost = float(local_avg_costs.get(miner_uid, 0.0) or 0.0)
+            avg_time = sum(times) / len(times) if times else 999999.0
+        local_reward_candidates.append((miner_uid, reward_value, avg_time))
+        local_best_rewards[miner_uid] = reward_value
 
-        # Get miner name from agent_run
-        miner_name = getattr(agent_run, "agent_name", None) or f"Miner {miner_uid}"
+    sorted_miners_local = sorted(local_reward_candidates, key=lambda item: (-item[1], item[2], item[0]))
+    rank_map_local = {uid: rank for rank, (uid, _score, _time) in enumerate(sorted_miners_local, start=1)}
 
-        # Obtener miner_hotkey
+    for miner_uid in participant_uids:
+        best_run = getattr(ctx, "_best_run_payload_for_miner")(miner_uid)
+        current_run = getattr(ctx, "_current_round_run_payload")(miner_uid)
+        effective_run = best_run or current_run or {}
+        rank_value = rank_map_local.get(miner_uid)
+
+        miner_name = None
+        try:
+            agent_info = getattr(ctx, "agents_dict", {}).get(miner_uid)
+            miner_name = getattr(agent_info, "agent_name", None)
+        except Exception:
+            miner_name = None
+        if not miner_name:
+            miner_name = f"Miner {miner_uid}"
+
         miner_hotkey = None
         try:
-            # Primero intentar desde snapshots guardados
             miner_snapshot = ctx.current_miner_snapshots.get(miner_uid)
             if miner_snapshot and hasattr(miner_snapshot, "miner_hotkey"):
                 miner_hotkey = miner_snapshot.miner_hotkey
-            # Fallback a metagraph
             if not miner_hotkey:
                 miner_hotkey = ctx.metagraph.hotkeys[miner_uid] if miner_uid < len(ctx.metagraph.hotkeys) else None
         except Exception:
             pass
 
-        miner_stats_entry = {
-            "tasks_failed": miner_tasks_failed,
-            "tasks_attempted": miner_tasks_attempted,
-            "tasks_completed": miner_tasks_completed,
-            "avg_evaluation_time": float(avg_time),
-            "avg_cost": float(avg_cost),
-        }
+        tasks_received = int(effective_run.get("tasks_received", 0) or 0)
+        tasks_success = int(effective_run.get("tasks_success", 0) or 0)
+        tasks_failed = int(max(tasks_received - tasks_success, 0))
+        avg_time = float(effective_run.get("time", 0.0) or 0.0)
+        avg_cost = float(effective_run.get("cost", 0.0) or 0.0)
+        avg_reward_value = float(effective_run.get("reward", 0.0) or 0.0)
+        avg_eval_score = float(effective_run.get("score", 0.0) or 0.0)
+
         local_stats_by_miner[miner_uid] = {
-            "avg_eval_time": float(avg_time),
-            "avg_cost": float(avg_cost),
-            "tasks_sent": int(miner_tasks_attempted),
-            "tasks_success": int(miner_tasks_completed),
-            "tasks_failed": int(miner_tasks_failed),
+            "avg_eval_time": avg_time,
+            "avg_cost": avg_cost,
+            "tasks_sent": tasks_received,
+            "tasks_success": tasks_success,
+            "tasks_failed": tasks_failed,
         }
 
-        # Get local avg_eval_score (for reused runs, agent_run.average_score reflects source run)
-        local_avg_eval_score = getattr(agent_run, "average_score", None) if is_reused else local_avg_eval_scores.get(miner_uid, 0.0)
-        if local_avg_eval_score is None:
-            local_avg_eval_score = local_avg_eval_scores.get(miner_uid, 0.0)
-        zero_reason = getattr(agent_run, "zero_reason", None)
-        reused_from_agent_run_id = getattr(agent_run, "reused_from_agent_run_id", None)
+        miner_payload = {
+            "rank": rank_value,
+            "avg_reward": avg_reward_value,
+            "avg_eval_score": avg_eval_score,
+            "avg_evaluation_time": avg_time,
+            "avg_cost": avg_cost,
+            "miner_uid": miner_uid,
+            "miner_hotkey": miner_hotkey,
+            "miner_name": miner_name,
+            "tasks_attempted": tasks_received,
+            "tasks_completed": tasks_success,
+            "tasks_failed": tasks_failed,
+            "best_run": best_run,
+            "current_run": current_run,
+        }
+        if current_run and current_run.get("zero_reason") is not None:
+            miner_payload["zero_reason"] = current_run.get("zero_reason")
+        local_evaluation_miners.append(miner_payload)
 
-        local_evaluation_miners.append(
-            {
-                "rank": rank_value,
-                "avg_reward": float(avg_reward_value),  # Average of all rewards for this miner (pre-consensus, local to this validator)
-                "avg_eval_score": float(local_avg_eval_score),  # Average of all eval_scores for this miner (pure evaluation score, 0-1)
-                "avg_cost": float(avg_cost),
-                "miner_uid": miner_uid,
-                "miner_hotkey": miner_hotkey,  # Miner hotkey for identification
-                "miner_name": miner_name,
-                "agent_run_id": agent_run.agent_run_id,
-                "zero_reason": zero_reason,
-                "is_reused": is_reused,
-                "reused_from_agent_run_id": reused_from_agent_run_id,
-                **miner_stats_entry,
-            }
-        )
-
-    # Build agent_run summaries (still needed for agent_runs field)
     agent_run_summaries: List[iwa_models.FinishRoundAgentRunIWAP] = []
-    for miner_data in local_evaluation_miners:
+    for miner_uid, agent_run in (ctx.current_agent_runs or {}).items():
+        current_run = getattr(ctx, "_current_round_run_payload")(miner_uid)
+        if current_run is None:
+            continue
+        miner_name = None
+        try:
+            agent_info = getattr(ctx, "agents_dict", {}).get(miner_uid)
+            miner_name = getattr(agent_info, "agent_name", None)
+        except Exception:
+            miner_name = None
         agent_run_summaries.append(
             iwa_models.FinishRoundAgentRunIWAP(
-                agent_run_id=miner_data["agent_run_id"],
-                rank=miner_data["rank"],
-                miner_name=miner_data["miner_name"],
-                avg_reward=miner_data["avg_reward"],
-                avg_evaluation_time=miner_data["avg_evaluation_time"],
-                tasks_attempted=miner_data["tasks_attempted"],
-                tasks_completed=miner_data["tasks_completed"],
-                tasks_failed=miner_data["tasks_failed"],
-                zero_reason=miner_data.get("zero_reason"),
-                is_reused=miner_data.get("is_reused", False),
-                reused_from_agent_run_id=miner_data.get("reused_from_agent_run_id"),
+                agent_run_id=agent_run.agent_run_id,
+                rank=rank_map_local.get(miner_uid),
+                miner_name=miner_name or f"Miner {miner_uid}",
+                avg_reward=float(current_run.get("reward", 0.0) or 0.0),
+                avg_evaluation_time=float(current_run.get("time", 0.0) or 0.0),
+                tasks_attempted=int(current_run.get("tasks_received", 0) or 0),
+                tasks_completed=int(current_run.get("tasks_success", 0) or 0),
+                tasks_failed=int(current_run.get("failed_tasks", 0) or 0),
+                zero_reason=current_run.get("zero_reason"),
             )
         )
 
@@ -1253,8 +1215,6 @@ async def finish_round_flow(
         "burn_recipient_uid": int(BURN_UID),
     }
 
-    miners_reused = list(getattr(ctx, "miners_reused_this_round", None) or [])
-
     # Include round/season config so backend can persist to config_season_round (main validator only)
     round_manager = getattr(ctx, "round_manager", None)
     round_size_epochs = float(round_manager.round_size_epochs) if round_manager else getattr(validator_config, "ROUND_SIZE_EPOCHS", None)
@@ -1275,9 +1235,8 @@ async def finish_round_flow(
         tasks_total=int(tasks_completed or 0),
         tasks_completed=int(tasks_completed or 0),
         miners_responded_handshake=len(getattr(ctx, "active_miner_uids", []) or []),
-        miners_evaluated=len(avg_rewards or {}),
+        miners_evaluated=len(local_evaluation_miners),
         emission=emission_info,
-        miners_reused_same_commit=miners_reused if miners_reused else None,
         round_size_epochs=round_size_epochs,
         season_size_epochs=season_size_epochs,
         minimum_start_block=minimum_start_block,
@@ -1295,7 +1254,7 @@ async def finish_round_flow(
         "summary": _build_consensus_summary_payload(
             season_number=season_number_for_summary,
             round_number_in_season=round_number_for_summary,
-            miner_rewards=local_avg_rewards,
+            miner_rewards=local_best_rewards,
             season_history=getattr(ctx, "_season_competition_history", {}),
             eligible_uids=local_eligible_uids,
         ),
