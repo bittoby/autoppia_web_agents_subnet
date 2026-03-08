@@ -22,7 +22,7 @@ BURN_AMOUNT_PERCENTAGE = _env_float("BURN_AMOUNT_PERCENTAGE", 0.925)
 # SHARED CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-SEASON_SIZE_EPOCHS = _env_float("SEASON_SIZE_EPOCHS", 280.0, test_default=1.6666667)
+SEASON_SIZE_EPOCHS = _env_float("SEASON_SIZE_EPOCHS", 1.1112, test_default=1.6666667)
 # 20 minutes with 360 blocks/epoch and ~12s/block => 100 blocks => 0.2778 epochs
 ROUND_SIZE_EPOCHS = _env_float("ROUND_SIZE_EPOCHS", 0.2778, test_default=0.2778)
 # IMPORTANT: season/round math uses MINIMUM_START_BLOCK always.
