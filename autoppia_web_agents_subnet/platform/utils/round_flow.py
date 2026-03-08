@@ -1140,6 +1140,9 @@ async def finish_round_flow(
             "tasks_sent": tasks_received,
             "tasks_success": tasks_success,
             "tasks_failed": tasks_failed,
+            "github_url": effective_run.get("github_url"),
+            "normalized_repo": effective_run.get("normalized_repo"),
+            "commit_sha": effective_run.get("commit_sha"),
         }
 
         miner_payload = {
@@ -1404,6 +1407,9 @@ async def finish_round_flow(
             avg_cost = consensus_stats.get("avg_cost") or local_stats.get("avg_cost", 0.0)
             tasks_sent = consensus_stats.get("tasks_sent") or local_stats.get("tasks_sent", 0)
             tasks_success = consensus_stats.get("tasks_success") or local_stats.get("tasks_success", 0)
+            github_url = local_stats.get("github_url")
+            normalized_repo = local_stats.get("normalized_repo")
+            commit_sha = local_stats.get("commit_sha")
 
             current_stats = current_stats_by_miner.get(miner_uid) or {}
             current_run_consensus = None
@@ -1415,12 +1421,16 @@ async def finish_round_flow(
                     "cost": float(current_stats.get("avg_cost", 0.0) or 0.0),
                     "tasks_received": int(current_stats.get("tasks_sent", 0) or 0),
                     "tasks_success": int(current_stats.get("tasks_success", 0) or 0),
+                    "github_url": github_url,
+                    "normalized_repo": normalized_repo,
+                    "commit_sha": commit_sha,
                 }
 
             post_consensus_miners.append(
                 {
                     "uid": miner_uid,
                     "hotkey": miner_hotkey,
+                    "github_url": github_url,
                     "best_run_consensus": {
                         "reward": float(consensus_reward),
                         "score": float(post_consensus_avg_eval_score),
@@ -1428,6 +1438,9 @@ async def finish_round_flow(
                         "cost": float(avg_cost),
                         "tasks_received": int(tasks_sent),
                         "tasks_success": int(tasks_success),
+                        "github_url": github_url,
+                        "normalized_repo": normalized_repo,
+                        "commit_sha": commit_sha,
                         "rank": rank,
                         "weight": float(weight),
                     },

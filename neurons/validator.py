@@ -220,6 +220,84 @@ class Validator(
 
         self._season_competition_history = loaded
 
+    def _load_evaluated_commit_history(self) -> None:
+        """Rebuild evaluated commit index from saved IPFS upload artifacts."""
+        rebuilt: dict[int, dict[str, dict]] = {}
+        base = self._state_summary_root()
+        for season_dir in sorted(base.glob("season_*")):
+            if not season_dir.is_dir():
+                continue
+            for round_dir in sorted(season_dir.glob("round_*")):
+                if not round_dir.is_dir():
+                    continue
+                ipfs_uploaded_path = round_dir / "ipfs_uploaded.json"
+                if not ipfs_uploaded_path.exists():
+                    continue
+                try:
+                    with ipfs_uploaded_path.open("r", encoding="utf-8") as f:
+                        ipfs_uploaded = json.load(f)
+                except Exception:
+                    continue
+                if not isinstance(ipfs_uploaded, dict):
+                    continue
+                payload = ipfs_uploaded.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                miners = payload.get("miners")
+                if not isinstance(miners, list):
+                    continue
+                for miner_entry in miners:
+                    if not isinstance(miner_entry, dict):
+                        continue
+                    try:
+                        uid_i = int(miner_entry.get("uid"))
+                    except Exception:
+                        continue
+                    for run_key in ("best_run", "current_run"):
+                        run_payload = miner_entry.get(run_key)
+                        if not isinstance(run_payload, dict):
+                            continue
+                        github_url = run_payload.get("github_url")
+                        normalized_repo = run_payload.get("normalized_repo")
+                        commit_sha = run_payload.get("commit_sha")
+                        if not isinstance(github_url, str) or not github_url.strip():
+                            continue
+                        if not isinstance(normalized_repo, str) or not normalized_repo.strip():
+                            continue
+                        if not isinstance(commit_sha, str) or not commit_sha.strip():
+                            continue
+                        try:
+                            tasks_received = int(run_payload.get("tasks_received", 0) or 0)
+                        except Exception:
+                            tasks_received = 0
+                        if tasks_received <= 0:
+                            continue
+                        stats = {
+                            "agent_run_id": f"artifact:{season_dir.name}:{round_dir.name}:{uid_i}:{run_key}",
+                            "average_reward": float(run_payload.get("reward", 0.0) or 0.0),
+                            "average_score": float(run_payload.get("score", 0.0) or 0.0),
+                            "average_execution_time": float(run_payload.get("time", 0.0) or 0.0),
+                            "average_cost": float(run_payload.get("cost", 0.0) or 0.0),
+                            "total_tasks": tasks_received,
+                            "success_tasks": int(run_payload.get("tasks_success", 0) or 0),
+                            "failed_tasks": max(tasks_received - int(run_payload.get("tasks_success", 0) or 0), 0),
+                            "zero_reason": run_payload.get("zero_reason"),
+                            "github_url": github_url,
+                            "normalized_repo": normalized_repo,
+                            "commit_sha": commit_sha,
+                            "evaluated_season": run_payload.get("season"),
+                            "evaluated_round": run_payload.get("round"),
+                            "last_evaluated_season": run_payload.get("season"),
+                            "last_evaluated_round": run_payload.get("round"),
+                            "first_evaluated_season": run_payload.get("season"),
+                            "first_evaluated_round": run_payload.get("round"),
+                        }
+                        target_map = rebuilt.setdefault(uid_i, {})
+                        commit_key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
+                        target_map[commit_key] = stats
+                        target_map[github_url.strip()] = stats
+        self._evaluated_commits_by_miner = rebuilt
+
     def save_state(self):
         """Save base validator state + season/round artifacts."""
         super().save_state()
@@ -238,6 +316,10 @@ class Validator(
             self._load_competition_state()
         except Exception as exc:
             bt.logging.warning(f"Could not load season/round artifacts (starting fresh): {exc}")
+        try:
+            self._load_evaluated_commit_history()
+        except Exception as exc:
+            bt.logging.warning(f"Could not rebuild evaluated commit history from round artifacts: {exc}")
 
     async def forward(self) -> None:
         """

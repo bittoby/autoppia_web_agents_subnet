@@ -199,6 +199,9 @@ class ValidatorEvaluationMixin:
                             "success_tasks": success_tasks,
                             "failed_tasks": (tasks or len(miner_rewards)) - success_tasks,
                             "zero_reason": getattr(agent, "zero_reason", None),
+                            "github_url": getattr(agent, "github_url", None),
+                            "normalized_repo": getattr(agent, "normalized_repo", None),
+                            "commit_sha": getattr(agent, "git_commit", None),
                             "evaluated_season": int(getattr(getattr(self, "season_manager", None), "season_number", 0) or 0),
                             "evaluated_round": int(getattr(getattr(self, "round_manager", None), "round_number", 0) or 0),
                         }

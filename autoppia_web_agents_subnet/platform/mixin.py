@@ -391,6 +391,9 @@ class ValidatorPlatformMixin:
             "cost": avg_cost,
             "tasks_received": tasks_received,
             "tasks_success": tasks_success,
+            "github_url": stats.get("github_url"),
+            "normalized_repo": stats.get("normalized_repo"),
+            "commit_sha": stats.get("commit_sha"),
             "season": (int(stats["evaluated_season"]) if stats.get("evaluated_season") is not None else None),
             "round": (int(stats["evaluated_round"]) if stats.get("evaluated_round") is not None else None),
         }
@@ -416,6 +419,7 @@ class ValidatorPlatformMixin:
             avg_time = float(getattr(run, "average_execution_time", 0.0) or 0.0)
             run_meta = getattr(run, "metadata", {}) or {}
             avg_cost = float(run_meta.get("average_cost", 0.0) or 0.0) if isinstance(run_meta, dict) else 0.0
+        agent_info = (getattr(self, "agents_dict", None) or {}).get(uid)
         return {
             "reward": avg_reward,
             "score": avg_score,
@@ -424,6 +428,9 @@ class ValidatorPlatformMixin:
             "tasks_received": total_tasks,
             "tasks_success": success_tasks,
             "failed_tasks": failed_tasks,
+            "github_url": getattr(agent_info, "github_url", None) if agent_info is not None else None,
+            "normalized_repo": getattr(agent_info, "normalized_repo", None) if agent_info is not None else None,
+            "commit_sha": getattr(agent_info, "git_commit", None) if agent_info is not None else None,
             "season": int(getattr(getattr(self, "season_manager", None), "season_number", 0) or 0),
             "round": int(getattr(getattr(self, "round_manager", None), "round_number", 0) or 0),
             "zero_reason": getattr(run, "zero_reason", None),
@@ -468,10 +475,17 @@ class ValidatorPlatformMixin:
         """Record that we evaluated (repo, commit) for this miner so we don't re-evaluate on resubmit."""
         if not normalized_repo or not commit_sha or not agent_run_id:
             return
-        key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
+        github_url = None
+        if isinstance(stats, dict):
+            github_url = stats.get("github_url")
+        commit_key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
+        github_key = str(github_url).strip() if isinstance(github_url, str) and str(github_url).strip() else None
         if not isinstance(getattr(self, "_evaluated_commits_by_miner", None), dict):
             self._evaluated_commits_by_miner = {}
-        existing = (self._evaluated_commits_by_miner.get(uid) or {}).get(key)
+        existing_map = self._evaluated_commits_by_miner.get(uid) or {}
+        existing = existing_map.get(github_key) if github_key else None
+        if not isinstance(existing, dict):
+            existing = existing_map.get(commit_key)
         incoming = {"agent_run_id": agent_run_id, **(stats or {})}
         # Keep explicit first/last evaluated round metadata per commit key.
         season_val = incoming.get("evaluated_season")
@@ -510,7 +524,10 @@ class ValidatorPlatformMixin:
                 return
             if existing_total <= 0 and incoming_total > 0:
                 # Upgrade: replace a previously failed evaluation with a good one.
-                self._evaluated_commits_by_miner.setdefault(uid, {})[key] = incoming
+                target_map = self._evaluated_commits_by_miner.setdefault(uid, {})
+                target_map[commit_key] = incoming
+                if github_key:
+                    target_map[github_key] = incoming
                 return
             # Both existing and incoming have total_tasks=0: nothing useful to store.
             return
@@ -525,7 +542,10 @@ class ValidatorPlatformMixin:
         if incoming_total <= 0:
             return
 
-        self._evaluated_commits_by_miner.setdefault(uid, {})[key] = incoming
+        target_map = self._evaluated_commits_by_miner.setdefault(uid, {})
+        target_map[commit_key] = incoming
+        if github_key:
+            target_map[github_key] = incoming
 
     # ──────────────────────────────────────────────────────────────────────────
     # Async subtensor provider for consensus (single instance per validator)

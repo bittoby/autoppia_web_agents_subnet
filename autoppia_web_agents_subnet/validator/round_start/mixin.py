@@ -833,8 +833,12 @@ class ValidatorRoundStartMixin:
                 # Already evaluated this (repo, commit) in a past round: do not re-evaluate.
                 if normalized_repo and commit_sha:
                     evaluated_map = getattr(self, "_evaluated_commits_by_miner", None) or {}
-                    key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
-                    stored = (evaluated_map.get(uid) or {}).get(key)
+                    github_key = str(commit_url).strip() if isinstance(commit_url, str) and str(commit_url).strip() else None
+                    commit_key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
+                    stored_map = evaluated_map.get(uid) or {}
+                    stored = stored_map.get(github_key) if github_key else None
+                    if not isinstance(stored, dict):
+                        stored = stored_map.get(commit_key)
                     if isinstance(stored, dict) and stored.get("agent_run_id"):
                         self.miners_reused_this_round.add(uid)
                         self.eligibility_status_by_uid[int(uid)] = "reused"
