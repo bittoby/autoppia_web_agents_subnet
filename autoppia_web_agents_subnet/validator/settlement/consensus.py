@@ -299,6 +299,33 @@ async def publish_round_snapshot(
     start_epoch = int(boundaries["round_start_epoch"])
     target_epoch = int(boundaries["round_target_epoch"])
     rewards = _normalize_rewards_map(scores)
+    # Build scores = average evaluation score (0-1) per miner, not the consensus reward.
+    # So "scores" = raw avg eval score (e.g. 0.4, 0.3, 0), "rewards" = consensus/normalized reward.
+    eval_scores_map: Dict[str, float] = {}
+    run_map = getattr(self, "current_agent_runs", None) or {}
+    for uid_raw, run in run_map.items():
+        try:
+            uid_str = str(int(uid_raw))
+            avg = getattr(run, "average_score", None)
+            if avg is not None:
+                eval_scores_map[uid_str] = float(avg)
+            else:
+                # Fallback: average of round_eval_scores for this uid
+                rm = getattr(self, "round_manager", None)
+                res = getattr(rm, "round_eval_scores", None) or {}
+                lst = res.get(int(uid_raw)) or res.get(uid_raw) or []
+                if lst:
+                    eval_scores_map[uid_str] = sum(float(x) for x in lst) / len(lst)
+                else:
+                    eval_scores_map[uid_str] = 0.0
+        except Exception:
+            pass
+    # Ensure every uid in rewards has an entry in scores (fallback to reward for backward compat)
+    for uid_str in rewards:
+        if uid_str not in eval_scores_map:
+            eval_scores_map[uid_str] = float(rewards.get(uid_str, 0.0))
+    payload_scores = eval_scores_map if eval_scores_map else rewards
+
     miner_metrics = _build_snapshot_miner_metrics(self, rewards)
     handshake_results_raw = getattr(self, "handshake_results", None) or {}
     handshake_results: Dict[str, str] = {}
@@ -331,9 +358,10 @@ async def publish_round_snapshot(
         "validator_hotkey": self.wallet.hotkey.ss58_address,
         "validator_round_id": getattr(self, "current_round_id", None),
         "validator_version": getattr(self, "version", None),
-        # Canonical field: rewards. Keep scores as a compatibility alias for older readers.
+        # rewards = consensus/normalized reward per miner (used for weighting).
+        # scores = average evaluation score (0-1) per miner (raw eval metric).
         "rewards": rewards,
-        "scores": rewards,
+        "scores": payload_scores,
         "miner_metrics": miner_metrics,
         "handshake_results": handshake_results,
         "eligibility_statuses": eligibility_statuses,

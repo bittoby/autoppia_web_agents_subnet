@@ -357,7 +357,6 @@ class ValidatorRoundStartMixin:
                 candidate_stakes.append((stake_val, uid, coldkey))
             else:
                 skipped_below_stake += 1
-                bt.logging.debug(f"[handshake] Skipping uid={uid} stake={stake_val:.4f} < MIN_MINER_STAKE_ALPHA={min_stake:.4f}")
 
         if not candidate_stakes:
             bt.logging.warning(f"No miners meet MIN_MINER_STAKE_ALPHA={min_stake:.4f}; active_miner_uids will be empty")
