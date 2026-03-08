@@ -463,10 +463,10 @@ def _extract_round_summary_v2(*, season_history: Dict[Any, Any], season_number: 
     round_entry = rounds_state.get(int(round_number_in_season)) or rounds_state.get(str(int(round_number_in_season)))
     if not isinstance(round_entry, dict):
         return None
-    summary = round_entry.get("post_consensus_json")
-    if not isinstance(summary, dict):
-        summary = round_entry.get("post_consensus_summary")
-    return summary if isinstance(summary, dict) else None
+    post_consensus_json = round_entry.get("post_consensus_json")
+    if not isinstance(post_consensus_json, dict):
+        post_consensus_json = round_entry.get("post_consensus_summary")
+    return post_consensus_json if isinstance(post_consensus_json, dict) else None
 
 
 def _persist_round_summary_file(
@@ -482,18 +482,17 @@ def _persist_round_summary_file(
     if season_number <= 0 or round_number <= 0:
         return
 
-    post_summary = post_consensus if isinstance(post_consensus, dict) else None
+    post_consensus_json = post_consensus if isinstance(post_consensus, dict) else None
 
     payload: Dict[str, Any] = {
         "schema_version": 1,
         "season_number": season_number,
         "round_number_in_season": round_number,
         "saved_at_utc": datetime.utcnow().isoformat(),
-        "post_consensus": post_summary,
+        "post_consensus_json": post_consensus_json,
         "ipfs_uploaded": ipfs_uploaded if isinstance(ipfs_uploaded, dict) else None,
         "ipfs_downloaded": ipfs_downloaded if isinstance(ipfs_downloaded, dict) else None,
         "s3_logs_url": str(s3_logs_url) if isinstance(s3_logs_url, str) and s3_logs_url.strip() else None,
-        "summary": post_summary.get("summary") if isinstance(post_summary, dict) and isinstance(post_summary.get("summary"), dict) else None,
     }
 
     try:
@@ -1498,7 +1497,7 @@ async def finish_round_flow(
                 }
             )
 
-        post_consensus_summary = _extract_round_summary_v2(
+        post_consensus_summary_block = _extract_round_summary_v2(
             season_history=getattr(ctx, "_season_competition_history", {}) or {},
             season_number=int(season_number_for_summary or 0),
             round_number_in_season=int(round_number_for_summary or 0),
@@ -1512,7 +1511,7 @@ async def finish_round_flow(
             "total_stake": float(sum(float(p.get("stake", 0.0) or 0.0) for p in _downloaded_payloads_raw if isinstance(p, dict))) if _downloaded_payloads_raw else 0.0,
             "miners": post_consensus_miners,
             "timestamp": ended_at,
-            "summary": post_consensus_summary,
+            "summary": post_consensus_summary_block,
         }
 
         # NOTA: post_consensus_evaluation NO se sube a IPFS
