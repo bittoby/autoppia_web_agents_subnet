@@ -267,11 +267,14 @@ class Validator(
                 summary_path = round_dir / "summary_round.json"
                 round_summary = {**round_payload}
 
-                pre_consensus = {
+                snapshot = {
                     "schema_version": 1,
                     "season_number": season_number,
                     "round_number_in_season": round_number,
                     "saved_at_utc": now,
+                    "post_consensus": None,
+                    "ipfs_uploaded": None,
+                    "ipfs_downloaded": None,
                     "round_summary": {
                         "winner": round_summary.get("winner", {}),
                         "miner_rewards": {str(k): float(v) for k, v in round_summary.get("miner_rewards", round_summary.get("miner_scores", {})).items()}
@@ -279,24 +282,6 @@ class Validator(
                         else {},
                         "decision": round_summary.get("decision", {}),
                     },
-                    "season_summary": {
-                        "current_winner_uid": season_summary.get("current_winner_uid"),
-                        "current_winner_reward": season_summary.get("current_winner_reward", season_summary.get("current_winner_score", 0.0)),
-                        "required_improvement_pct": season_summary.get("required_improvement_pct", 0.0),
-                        "last_eligible_uids": season_summary.get("last_eligible_uids", []) or [],
-                    },
-                }
-
-                snapshot = {
-                    "schema_version": 1,
-                    "season_number": season_number,
-                    "round_number_in_season": round_number,
-                    "saved_at_utc": now,
-                    "pre_consensus": pre_consensus,
-                    "post_consensus": None,
-                    "ipfs_uploaded": None,
-                    "ipfs_downloaded": None,
-                    "round_summary": pre_consensus.get("round_summary", {}),
                     "season_summary": {
                         "current_winner_uid": season_summary.get("current_winner_uid"),
                         "current_winner_reward": season_summary.get("current_winner_reward", season_summary.get("current_winner_score", 0.0)),

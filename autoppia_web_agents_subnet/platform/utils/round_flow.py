@@ -454,7 +454,6 @@ def _persist_round_summary_file(
     ctx,
     season_number: int,
     round_number: int,
-    pre_consensus: Optional[Dict[str, Any]],
     post_consensus: Optional[Dict[str, Any]],
     ipfs_uploaded: Optional[Dict[str, Any]],
     ipfs_downloaded: Optional[Dict[str, Any]],
@@ -463,7 +462,6 @@ def _persist_round_summary_file(
     if season_number <= 0 or round_number <= 0:
         return
 
-    pre_summary = pre_consensus if isinstance(pre_consensus, dict) else None
     post_summary = post_consensus if isinstance(post_consensus, dict) else None
 
     payload: Dict[str, Any] = {
@@ -471,12 +469,11 @@ def _persist_round_summary_file(
         "season_number": season_number,
         "round_number_in_season": round_number,
         "saved_at_utc": datetime.utcnow().isoformat(),
-        "pre_consensus": pre_summary,
         "post_consensus": post_summary,
         "ipfs_uploaded": ipfs_uploaded if isinstance(ipfs_uploaded, dict) else None,
         "ipfs_downloaded": ipfs_downloaded if isinstance(ipfs_downloaded, dict) else None,
         "s3_logs_url": str(s3_logs_url) if isinstance(s3_logs_url, str) and s3_logs_url.strip() else None,
-        "summary": post_summary if isinstance(post_summary, dict) else (pre_summary.get("summary") if isinstance(pre_summary, dict) else None),
+        "summary": post_summary if isinstance(post_summary, dict) else None,
     }
 
     try:
@@ -1532,7 +1529,6 @@ async def finish_round_flow(
     handshake_results_raw = getattr(ctx, "handshake_results", None) or {}
     handshake_results = {str(uid): status for uid, status in handshake_results_raw.items()}
 
-    pre_consensus_summary = local_evaluation
     post_consensus_summary = post_consensus_evaluation.get("summary") if isinstance(post_consensus_evaluation, dict) else None
 
     validator_summary = {
@@ -1540,7 +1536,6 @@ async def finish_round_flow(
         "s3_logs_url": round_log_url,
         "ipfs_uploaded": ipfs_uploaded,
         "ipfs_downloaded": ipfs_downloaded,
-        "evaluation_pre_consensus": pre_consensus_summary,
         "evaluation_post_consensus": post_consensus_summary,
         "handshake_results": handshake_results,
         "eligibility_statuses": local_eligibility_statuses,
@@ -1568,7 +1563,6 @@ async def finish_round_flow(
         ctx=ctx,
         season_number=int(season_number_for_summary or 0),
         round_number=int(round_number_for_summary or 0),
-        pre_consensus=pre_consensus_summary,
         post_consensus=post_consensus_summary,
         ipfs_uploaded=ipfs_uploaded,
         ipfs_downloaded=ipfs_downloaded,
