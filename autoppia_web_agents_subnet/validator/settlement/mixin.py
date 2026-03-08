@@ -710,7 +710,7 @@ class ValidatorSettlementMixin:
         else:
             summary_state["current_winner_snapshot"] = None
 
-        round_entry["post_consensus_summary"] = {
+        round_entry["post_consensus_json"] = {
             "season": int(season_number),
             "round": int(round_key),
             "percentage_to_dethrone": float(required_improvement_pct),

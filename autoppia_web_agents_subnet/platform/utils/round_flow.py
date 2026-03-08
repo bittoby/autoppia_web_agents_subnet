@@ -463,7 +463,9 @@ def _extract_round_summary_v2(*, season_history: Dict[Any, Any], season_number: 
     round_entry = rounds_state.get(int(round_number_in_season)) or rounds_state.get(str(int(round_number_in_season)))
     if not isinstance(round_entry, dict):
         return None
-    summary = round_entry.get("post_consensus_summary")
+    summary = round_entry.get("post_consensus_json")
+    if not isinstance(summary, dict):
+        summary = round_entry.get("post_consensus_summary")
     return summary if isinstance(summary, dict) else None
 
 
@@ -491,7 +493,7 @@ def _persist_round_summary_file(
         "ipfs_uploaded": ipfs_uploaded if isinstance(ipfs_uploaded, dict) else None,
         "ipfs_downloaded": ipfs_downloaded if isinstance(ipfs_downloaded, dict) else None,
         "s3_logs_url": str(s3_logs_url) if isinstance(s3_logs_url, str) and s3_logs_url.strip() else None,
-        "summary": post_summary if isinstance(post_summary, dict) else None,
+        "summary": post_summary.get("summary") if isinstance(post_summary, dict) and isinstance(post_summary.get("summary"), dict) else None,
     }
 
     try:
@@ -1547,14 +1549,14 @@ async def finish_round_flow(
     handshake_results_raw = getattr(ctx, "handshake_results", None) or {}
     handshake_results = {str(uid): status for uid, status in handshake_results_raw.items()}
 
-    post_consensus_summary = post_consensus_evaluation.get("summary") if isinstance(post_consensus_evaluation, dict) else None
+    post_consensus_payload = post_consensus_evaluation if isinstance(post_consensus_evaluation, dict) else None
 
     validator_summary = {
         "round": round_metadata.to_payload() if hasattr(round_metadata, "to_payload") else (round_metadata if isinstance(round_metadata, dict) else None),
         "s3_logs_url": round_log_url,
         "ipfs_uploaded": ipfs_uploaded,
         "ipfs_downloaded": ipfs_downloaded,
-        "evaluation_post_consensus": post_consensus_summary,
+        "evaluation_post_consensus": post_consensus_payload,
         "handshake_results": handshake_results,
         "eligibility_statuses": local_eligibility_statuses,
     }
@@ -1581,7 +1583,7 @@ async def finish_round_flow(
         ctx=ctx,
         season_number=int(season_number_for_summary or 0),
         round_number=int(round_number_for_summary or 0),
-        post_consensus=post_consensus_summary,
+        post_consensus=post_consensus_payload,
         ipfs_uploaded=ipfs_uploaded,
         ipfs_downloaded=ipfs_downloaded,
         s3_logs_url=round_log_url,
