@@ -14,10 +14,7 @@ def _json_dump_compact(data: Any) -> str:
     s = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     b = s.encode("utf-8")
     if len(b) > MAX_COMMIT_BYTES:
-        raise ValueError(
-            f"JSON payload too large: {len(b)} bytes (limit {MAX_COMMIT_BYTES}). "
-            "Store less history or compress further."
-        )
+        raise ValueError(f"JSON payload too large: {len(b)} bytes (limit {MAX_COMMIT_BYTES}). Store less history or compress further.")
     return s
 
 
@@ -116,4 +113,3 @@ async def read_my_plain_json(
     if uid is None:
         return None
     return await read_plain_commitment(st, netuid=netuid, uid=uid, block=block)
-

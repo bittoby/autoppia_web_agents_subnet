@@ -9,10 +9,10 @@ Provides fixtures for:
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, AsyncMock
+from unittest.mock import Mock, AsyncMock
 from typing import Dict, Any
 
-from autoppia_web_agents_subnet.validator.round_manager import RoundManager, RoundPhase
+from autoppia_web_agents_subnet.validator.round_manager import RoundManager
 from autoppia_web_agents_subnet.validator.season_manager import SeasonManager
 
 
@@ -62,18 +62,18 @@ def season_manager(mock_validator_config: Dict[str, Any]) -> SeasonManager:
 def dummy_validator(mock_validator_config: Dict[str, Any]) -> Mock:
     """
     Create a mock validator with all necessary attributes and mixins.
-    
+
     This fixture provides a lightweight validator mock without requiring
     actual Bittensor network connections or Docker containers.
     """
     validator = Mock()
-    
+
     # Basic attributes
     validator.config = mock_validator_config
     validator.block = 1000
     validator.uid = 0
     validator.version = "1.0.0"
-    
+
     # Managers
     validator.round_manager = RoundManager(
         round_size_epochs=mock_validator_config["round_size_epochs"],
@@ -81,30 +81,30 @@ def dummy_validator(mock_validator_config: Dict[str, Any]) -> Mock:
         settlement_fraction=mock_validator_config["settlement_fraction"],
     )
     validator.season_manager = SeasonManager()
-    
+
     # Agent tracking
     validator.agents_dict = {}
     validator.agents_queue = Mock()
     validator.agents_queue.empty = Mock(return_value=True)
     validator.agents_queue.get = Mock(side_effect=Exception("Queue empty"))
-    
+
     # Sandbox manager (mocked)
     validator.sandbox_manager = None
-    
+
     # Metagraph mock
     validator.metagraph = Mock()
     validator.metagraph.n = 10
     validator.metagraph.uids = list(range(10))
     validator.metagraph.S = [100.0] * 10  # Stake values
     validator.metagraph.axons = [Mock(ip="127.0.0.1", port=8000 + i) for i in range(10)]
-    
+
     # Async methods
     validator.sync = AsyncMock()
-    
+
     # Sync methods that were incorrectly marked as async
     validator.set_weights = Mock()
     validator.update_scores = Mock()
-    
+
     # Mixin methods (will be tested separately)
     validator._start_round = AsyncMock()
     validator._perform_handshake = AsyncMock()
@@ -112,10 +112,10 @@ def dummy_validator(mock_validator_config: Dict[str, Any]) -> Mock:
     validator._wait_until_specific_block = AsyncMock()
     validator._run_evaluation_phase = AsyncMock(return_value=0)
     validator._run_settlement_phase = AsyncMock()
-    
+
     # Round ID for logging
     validator.current_round_id = "test-round-1"
-    
+
     return validator
 
 
@@ -123,11 +123,11 @@ def dummy_validator(mock_validator_config: Dict[str, Any]) -> Mock:
 def validator_with_agents(dummy_validator: Mock) -> Mock:
     """
     Create a validator with pre-populated agent information.
-    
+
     Useful for testing evaluation and settlement phases.
     """
     from autoppia_web_agents_subnet.validator.models import AgentInfo
-    
+
     # Add 3 test agents
     for uid in [1, 2, 3]:
         agent = AgentInfo(
@@ -138,10 +138,10 @@ def validator_with_agents(dummy_validator: Mock) -> Mock:
         )
         dummy_validator.agents_dict[uid] = agent
         dummy_validator.agents_queue.put(agent)
-    
+
     # Update queue mock to return agents
     dummy_validator.agents_queue.empty = Mock(return_value=False)
     agents_list = list(dummy_validator.agents_dict.values())
     dummy_validator.agents_queue.get = Mock(side_effect=agents_list + [Exception("Queue empty")])
-    
+
     return dummy_validator

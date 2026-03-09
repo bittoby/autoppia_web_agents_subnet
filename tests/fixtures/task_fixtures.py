@@ -18,7 +18,7 @@ def mock_task():
     Create a single mock task using the IWA stub from conftest.
     """
     from autoppia_iwa.src.data_generation.tasks.classes import Task
-    
+
     task = Task(
         url="https://example.com",
         prompt="Click the submit button",
@@ -36,7 +36,7 @@ def mock_web_project():
     Create a mock web project using the IWA stub from conftest.
     """
     from autoppia_iwa.src.demo_webs.classes import WebProject
-    
+
     return WebProject(
         name="test_project",
         frontend_url="https://test-project.com",
@@ -58,12 +58,12 @@ def task_with_project(mock_task, mock_web_project) -> TaskWithProject:
 def season_tasks(mock_web_project) -> List[TaskWithProject]:
     """
     Create a collection of tasks for a season.
-    
+
     Returns multiple tasks that would be generated for a season,
     useful for testing evaluation across multiple tasks.
     """
     from autoppia_iwa.src.data_generation.tasks.classes import Task
-    
+
     tasks = []
     for i in range(5):
         task = Task(
@@ -74,7 +74,7 @@ def season_tasks(mock_web_project) -> List[TaskWithProject]:
             ],
         )
         tasks.append(TaskWithProject(project=mock_web_project, task=task))
-    
+
     return tasks
 
 
@@ -82,11 +82,11 @@ def season_tasks(mock_web_project) -> List[TaskWithProject]:
 def complex_task():
     """
     Create a complex task with multiple test types.
-    
+
     Useful for testing comprehensive evaluation scenarios.
     """
     from autoppia_iwa.src.data_generation.tasks.classes import Task
-    
+
     return Task(
         url="https://complex-app.com",
         prompt="Complete the multi-step form and submit",

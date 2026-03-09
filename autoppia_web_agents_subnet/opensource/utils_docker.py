@@ -29,9 +29,7 @@ def ensure_network(name: str, internal: bool = True) -> None:
         allow_non_internal = os.getenv("SANDBOX_ALLOW_NON_INTERNAL_NETWORK", "false").lower() == "true"
         if internal and not existing_internal and not allow_non_internal:
             raise RuntimeError(
-                f"Docker network '{name}' exists but is not internal. "
-                "Refusing to use it for sandbox isolation. "
-                "Remove/recreate the network or set SANDBOX_ALLOW_NON_INTERNAL_NETWORK=true to override."
+                f"Docker network '{name}' exists but is not internal. Refusing to use it for sandbox isolation. Remove/recreate the network or set SANDBOX_ALLOW_NON_INTERNAL_NETWORK=true to override."
             )
     except NotFound:
         client.networks.create(name, driver="bridge", internal=internal)
@@ -185,12 +183,12 @@ def garbage_collect_stale_containers(
 def stop_and_remove(container) -> None:
     try:
         container.stop(timeout=10)
-    except Exception as e:
+    except Exception:
         # Ignore errors when stopping (container might already be stopped)
         pass
     try:
         container.remove(force=True)
-    except Exception as e:
+    except Exception:
         # Ignore errors when removing (container might not exist)
         pass
 
@@ -204,7 +202,7 @@ def cleanup_containers(names: Iterable[str]) -> None:
         except NotFound:
             # Container doesn't exist, nothing to clean up
             continue
-        except Exception as e:
+        except Exception:
             # Ignore any other errors (connection issues, etc.)
             # The container might already be stopped or Docker might be unavailable
             continue

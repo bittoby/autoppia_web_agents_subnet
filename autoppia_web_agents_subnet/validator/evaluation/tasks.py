@@ -132,9 +132,7 @@ async def generate_tasks(num_tasks: int) -> List[TaskWithProject]:
                 bt.logging.debug(f"[tasks] Generated {len(all_tasks)}/{num_tasks} tasks")
 
         except Exception as e:
-            bt.logging.error(
-                f"[tasks] Failed to generate task for project '{project.name}' (use_case={use_case_name}): {e}"
-            )
+            bt.logging.error(f"[tasks] Failed to generate task for project '{project.name}' (use_case={use_case_name}): {e}")
             # Continue with next project instead of failing
 
     elapsed = time.time() - start_time

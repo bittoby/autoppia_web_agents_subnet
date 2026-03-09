@@ -70,4 +70,3 @@ echo "   python3 neurons/validator.py --netuid 36 2>&1 | python3 $LOG_SPLITTER"
 echo ""
 echo "   Option 2: Use PM2 ecosystem file with log piping"
 echo ""
-

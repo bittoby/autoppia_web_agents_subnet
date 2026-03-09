@@ -36,17 +36,11 @@ def normalize_max_weight(x: np.ndarray, limit: float = 0.1) -> np.ndarray:
         cumsum = np.cumsum(estimation, 0)
 
         # Determine the index of cutoff
-        estimation_sum = np.array(
-            [(len(values) - i - 1) * estimation[i] for i in range(len(values))]
-        )
-        n_values = (
-            estimation / (estimation_sum + cumsum + epsilon) < limit
-        ).sum()
+        estimation_sum = np.array([(len(values) - i - 1) * estimation[i] for i in range(len(values))])
+        n_values = (estimation / (estimation_sum + cumsum + epsilon) < limit).sum()
 
         # Determine the cutoff based on the index
-        cutoff_scale = (limit * cumsum[n_values - 1] - epsilon) / (
-            1 - (limit * (len(estimation) - n_values))
-        )
+        cutoff_scale = (limit * cumsum[n_values - 1] - epsilon) / (1 - (limit * (len(estimation) - n_values)))
         cutoff = cutoff_scale * values.sum()
 
         # Applying the cutoff
@@ -57,9 +51,7 @@ def normalize_max_weight(x: np.ndarray, limit: float = 0.1) -> np.ndarray:
         return y
 
 
-def convert_weights_and_uids_for_emit(
-    uids: np.ndarray, weights: np.ndarray
-) -> Tuple[List[int], List[int]]:
+def convert_weights_and_uids_for_emit(uids: np.ndarray, weights: np.ndarray) -> Tuple[List[int], List[int]]:
     r"""Converts weights into integer u32 representation that sum to MAX_INT_WEIGHT.
     Args:
         uids (:obj:`np.ndarray,`):
@@ -76,10 +68,6 @@ def convert_weights_and_uids_for_emit(
     uids = np.asarray(uids)
     weights = np.asarray(weights)
 
-    # Get non-zero weights and corresponding uids
-    non_zero_weights = weights[weights > 0]
-    non_zero_weight_uids = uids[weights > 0]
-
     # Debugging information (commented out to reduce spam)
     # bittensor.logging.debug(f"weights: {weights}")
     # bittensor.logging.debug(f"non_zero_weights: {non_zero_weights}")
@@ -87,29 +75,17 @@ def convert_weights_and_uids_for_emit(
     # bittensor.logging.debug(f"non_zero_weight_uids: {non_zero_weight_uids}")
 
     if np.min(weights) < 0:
-        raise ValueError(
-            "Passed weight is negative cannot exist on chain {}".format(
-                weights
-            )
-        )
+        raise ValueError("Passed weight is negative cannot exist on chain {}".format(weights))
     if np.min(uids) < 0:
-        raise ValueError(
-            "Passed uid is negative cannot exist on chain {}".format(uids)
-        )
+        raise ValueError("Passed uid is negative cannot exist on chain {}".format(uids))
     if len(uids) != len(weights):
-        raise ValueError(
-            "Passed weights and uids must have the same length, got {} and {}".format(
-                len(uids), len(weights)
-            )
-        )
+        raise ValueError("Passed weights and uids must have the same length, got {} and {}".format(len(uids), len(weights)))
     if np.sum(weights) == 0:
         bittensor.logging.debug("nothing to set on chain")
         return [], []  # Nothing to set on chain.
     else:
         max_weight = float(np.max(weights))
-        weights = [
-            float(value) / max_weight for value in weights
-        ]  # max-upscale values (max_weight = 1).
+        weights = [float(value) / max_weight for value in weights]  # max-upscale values (max_weight = 1).
         # bittensor.logging.debug(
         #     f"setting on chain max: {max_weight} and weights: {weights}"
         # )
@@ -117,9 +93,7 @@ def convert_weights_and_uids_for_emit(
     weight_vals = []
     weight_uids = []
     for i, (weight_i, uid_i) in enumerate(list(zip(weights, uids))):
-        uint16_val = round(
-            float(weight_i) * int(U16_MAX)
-        )  # convert to int representation.
+        uint16_val = round(float(weight_i) * int(U16_MAX))  # convert to int representation.
 
         # Filter zeros
         if uint16_val != 0:  # Filter zeros
@@ -198,9 +172,7 @@ def process_weights_for_netuid(
         except Exception:
             burn_uid = 5
         burn_uid = burn_uid if 0 <= burn_uid < metagraph.n else min(5, metagraph.n - 1)
-        bittensor.logging.warning(
-            f"Too few non-zero weights ({non_zero_weights.size} < {min_allowed_weights}) - BURNING (weight=1.0 to UID {burn_uid})"
-        )
+        bittensor.logging.warning(f"Too few non-zero weights ({non_zero_weights.size} < {min_allowed_weights}) - BURNING (weight=1.0 to UID {burn_uid})")
         # Create burn weights: burn_uid = 1.0, all others = 0.0
         final_weights = np.zeros(metagraph.n)
         final_weights[burn_uid] = 1.0
@@ -210,9 +182,7 @@ def process_weights_for_netuid(
     # bittensor.logging.debug("non_zero_weights", non_zero_weights)
 
     # Compute the exclude quantile and find the weights in the lowest quantile
-    max_exclude = max(0, len(non_zero_weights) - min_allowed_weights) / len(
-        non_zero_weights
-    )
+    max_exclude = max(0, len(non_zero_weights) - min_allowed_weights) / len(non_zero_weights)
     exclude_quantile = min([quantile, max_exclude])
     lowest_quantile = np.quantile(non_zero_weights, exclude_quantile)
     # bittensor.logging.debug("max_exclude", max_exclude)
@@ -220,17 +190,13 @@ def process_weights_for_netuid(
     # bittensor.logging.debug("lowest_quantile", lowest_quantile)
 
     # Exclude all weights below the allowed quantile.
-    non_zero_weight_uids = non_zero_weight_uids[
-        lowest_quantile <= non_zero_weights
-    ]
+    non_zero_weight_uids = non_zero_weight_uids[lowest_quantile <= non_zero_weights]
     non_zero_weights = non_zero_weights[lowest_quantile <= non_zero_weights]
     # bittensor.logging.debug("non_zero_weight_uids", non_zero_weight_uids)
     # bittensor.logging.debug("non_zero_weights", non_zero_weights)
 
     # Normalize weights and return.
-    normalized_weights = normalize_max_weight(
-        x=non_zero_weights, limit=max_weight_limit
-    )
+    normalized_weights = normalize_max_weight(x=non_zero_weights, limit=max_weight_limit)
     # bittensor.logging.debug("final_weights", normalized_weights)
 
     return non_zero_weight_uids, normalized_weights

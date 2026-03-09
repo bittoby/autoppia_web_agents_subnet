@@ -9,12 +9,7 @@ def interleave(*lists: List[Any]):
     Interleaves multiple lists like [a1, a2], [b1, b2] → [a1, b1, a2, b2], skipping None.
     Accepts any number of lists.
     """
-    return (
-        item
-        for group in itertools.zip_longest(*lists)
-        for item in group
-        if item is not None
-    )
+    return (item for group in itertools.zip_longest(*lists) for item in group if item is not None)
 
 
 def split_tasks_evenly(total_tasks: int, num_projects: int) -> list[int]:

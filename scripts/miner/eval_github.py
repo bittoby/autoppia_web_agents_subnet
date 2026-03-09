@@ -178,8 +178,7 @@ async def _run() -> int:
         agent = manager.deploy_agent(int(args.uid), args.github)
         if agent is None:
             raise RuntimeError(
-                "Sandbox agent deployment failed. Ensure repo starts an API with /health and /act, "
-                "and includes required runtime deps. Re-run with --keep-containers to inspect docker logs."
+                "Sandbox agent deployment failed. Ensure repo starts an API with /health and /act, and includes required runtime deps. Re-run with --keep-containers to inspect docker logs."
             )
         bt.logging.info(f"Agent deployed at {agent.base_url}")
 
@@ -250,16 +249,10 @@ async def _run() -> int:
                 f"tokens={row['tokens']} reward={row['reward']:.3f}"
             )
             if cost_limit_exceed_count > 0 and max_cost_per_task > 0.0 and row["over_cost_limit"]:
-                bt.logging.warning(
-                    f"Cost limit hit {cost_limit_hits}/{cost_limit_exceed_count} on task {idx}: "
-                    f"${cost:.4f} >= ${max_cost_per_task:.4f}"
-                )
+                bt.logging.warning(f"Cost limit hit {cost_limit_hits}/{cost_limit_exceed_count} on task {idx}: ${cost:.4f} >= ${max_cost_per_task:.4f}")
                 if cost_limit_hits >= cost_limit_exceed_count:
                     stop_for_cost_limit_streak = True
-                    bt.logging.warning(
-                        "Reached MAX_OVER_COST_TASKS_BEFORE_FORCED_ZERO_SCORE; "
-                        "stopping remaining tasks and forcing validator score to 0."
-                    )
+                    bt.logging.warning("Reached MAX_OVER_COST_TASKS_BEFORE_FORCED_ZERO_SCORE; stopping remaining tasks and forcing validator score to 0.")
                     break
 
         n_requested = max(total_tasks, 1)

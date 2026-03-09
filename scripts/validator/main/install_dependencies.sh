@@ -19,16 +19,16 @@ install_system_dependencies() {
   info_msg "Updating apt package lists..."
   sudo apt update -y || handle_error "Failed to update apt lists"
   sudo apt upgrade -y || handle_error "Failed to upgrade packages"
-  
+
   info_msg "Installing core tools..."
   sudo apt install -y sudo software-properties-common lsb-release curl \
     || handle_error "Failed to install core tools"
-  
+
   info_msg "Adding Python 3.11 PPA..."
   sudo add-apt-repository ppa:deadsnakes/ppa -y \
     || handle_error "Failed to add Python PPA"
   sudo apt update -y || handle_error "Failed to refresh apt lists"
-  
+
   # Common packages for all Ubuntu versions
   COMMON_PACKAGES=(
     python3.11 python3.11-venv python3.11-dev
@@ -43,7 +43,7 @@ install_system_dependencies() {
     libwebp-dev libharfbuzz-dev libsecret-1-dev libhyphen0 libflite1 libgles2-mesa-dev
     libx264-dev gnupg curl
   )
-  
+
   # Add version-specific audio package
   UBUNTU_CODENAME=$(lsb_release -cs)
   case "$UBUNTU_CODENAME" in
@@ -51,7 +51,7 @@ install_system_dependencies() {
     noble)  EXTRA_PACKAGES=(libasound2t64) ;;
     *)      EXTRA_PACKAGES=(libasound2)   ;;
   esac
-  
+
   info_msg "Installing system dependencies for $UBUNTU_CODENAME..."
   sudo apt install -y "${COMMON_PACKAGES[@]}" "${EXTRA_PACKAGES[@]}" \
     || handle_error "Failed to install system dependencies"
@@ -59,7 +59,7 @@ install_system_dependencies() {
 
 install_nodejs_and_npm() {
   info_msg "Checking Node.js installation..."
-  
+
   # Remove old Node.js if present
   if command -v node &>/dev/null; then
     NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
@@ -72,13 +72,13 @@ install_nodejs_and_npm() {
     sudo apt remove -y nodejs npm 2>/dev/null || true
     sudo apt autoremove -y || true
   fi
-  
+
   info_msg "Installing Node.js 20 LTS..."
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - \
     || handle_error "Failed to add NodeSource repository"
-  
+
   sudo apt install -y nodejs || handle_error "Failed to install Node.js"
-  
+
   info_msg "Node.js installed: $(node --version)"
   info_msg "npm installed: $(npm --version)"
 }
@@ -94,26 +94,26 @@ install_pm2() {
       sudo npm uninstall -g pm2 2>/dev/null || true
     fi
   fi
-  
+
   info_msg "Installing PM2..."
   sudo npm install -g pm2@latest || handle_error "Failed to install PM2"
-  
+
   info_msg "Updating PM2..."
   pm2 update || handle_error "Failed to update PM2"
 }
 
 verify_installation() {
   info_msg "Verifying system dependencies..."
-  
+
   # Check Python
   python3.11 --version || handle_error "Python 3.11 verification failed"
-  
+
   # Check Node.js
   node --version || handle_error "Node.js verification failed"
-  
+
   # Check PM2
   pm2 --version || handle_error "PM2 verification failed"
-  
+
   success_msg "System dependencies verification passed"
 }
 
@@ -123,7 +123,7 @@ main() {
   install_nodejs_and_npm
   install_pm2
   verify_installation
-  
+
   success_msg "System dependencies installed successfully!"
   echo -e "\e[33m[NEXT]\e[0m Run: ./scripts/validator/main/setup.sh"
 }

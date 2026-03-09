@@ -25,7 +25,7 @@ def load_env(env_path: Path) -> None:
             if not line or line.startswith("#"):
                 continue
             if line.startswith("export "):
-                line = line[len("export "):].strip()
+                line = line[len("export ") :].strip()
             if "=" not in line:
                 continue
             key, value = line.split("=", 1)

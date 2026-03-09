@@ -28,13 +28,9 @@ class BaseMinerNeuron(BaseNeuron):
 
         # Warn if allowing incoming requests from anyone.
         if not self.config.blacklist.force_validator_permit:
-            bt.logging.warning(
-                "You are allowing non-validators to send requests to your miner. This is a security risk."
-            )
+            bt.logging.warning("You are allowing non-validators to send requests to your miner. This is a security risk.")
         if self.config.blacklist.allow_non_registered:
-            bt.logging.warning(
-                "You are allowing non-registered entities to send requests to your miner. This is a security risk."
-            )
+            bt.logging.warning("You are allowing non-registered entities to send requests to your miner. This is a security risk.")
 
         # The axon handles request processing, allowing validators to send this miner requests.
         self.axon = bt.axon(
@@ -68,9 +64,7 @@ class BaseMinerNeuron(BaseNeuron):
         """
         self.sync()
 
-        bt.logging.info(
-            f"Serving miner axon {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
-        )
+        bt.logging.info(f"Serving miner axon {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}")
         self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
         bt.logging.info("🔧 Axon configured, about to start listening...")
         self.axon.start()
@@ -80,10 +74,7 @@ class BaseMinerNeuron(BaseNeuron):
 
         try:
             while not self.should_exit:
-                while (
-                    self.block - self.metagraph.last_update[self.uid]
-                    < self.config.neuron.epoch_length
-                ):
+                while self.block - self.metagraph.last_update[self.uid] < self.config.neuron.epoch_length:
                     time.sleep(1)
                     if self.should_exit:
                         break
@@ -142,10 +133,7 @@ class BaseMinerNeuron(BaseNeuron):
         validator_hotkey = synapse.dendrite.hotkey
 
         # Ensure hotkey is recognized.
-        if (
-            not self.config.blacklist.allow_non_registered
-            and validator_hotkey not in self.metagraph.hotkeys
-        ):
+        if not self.config.blacklist.allow_non_registered and validator_hotkey not in self.metagraph.hotkeys:
             bt.logging.warning(f"Unrecognized hotkey: {validator_hotkey}")
             return True, f"Unrecognized hotkey: {validator_hotkey}"
 

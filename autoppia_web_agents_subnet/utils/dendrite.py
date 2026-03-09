@@ -3,7 +3,7 @@ from typing import List, TypeVar
 from bittensor import Synapse
 
 # Generic synapse type
-T = TypeVar('T', bound=Synapse)
+T = TypeVar("T", bound=Synapse)
 
 
 async def dendrite_with_retries(
@@ -20,24 +20,15 @@ async def dendrite_with_retries(
 
     try:
         for attempt in range(retries):
-            responses: List[T] = await dendrite(
-                axons=axons, synapse=synapse, deserialize=deserialize, timeout=timeout
-            )
+            responses: List[T] = await dendrite(axons=axons, synapse=synapse, deserialize=deserialize, timeout=timeout)
 
             new_idx = []
             new_axons = []
             for i, response in enumerate(responses):
-                if (
-                    response.dendrite.status_code is not None
-                    and int(response.dendrite.status_code) == 422
-                ):
+                if response.dendrite.status_code is not None and int(response.dendrite.status_code) == 422:
                     if attempt == retries - 1:
                         res[idx[i]] = response
-                        bt.logging.info(
-                            "Wasn't able to get answers from axon {} after {} attempts".format(
-                                axons[i], retries
-                            )
-                        )
+                        bt.logging.info("Wasn't able to get answers from axon {} after {} attempts".format(axons[i], retries))
                     else:
                         new_idx.append(idx[i])
                         new_axons.append(axons[i])
@@ -45,11 +36,7 @@ async def dendrite_with_retries(
                     res[idx[i]] = response
 
             if len(new_idx):
-                bt.logging.info(
-                    "Found {} synapses with broken pipe, retrying them".format(
-                        len(new_idx)
-                    )
-                )
+                bt.logging.info("Found {} synapses with broken pipe, retrying them".format(len(new_idx)))
             else:
                 break
 

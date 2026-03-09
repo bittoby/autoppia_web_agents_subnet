@@ -12,6 +12,7 @@ try:
     from rich.table import Table
     from rich.console import Console
     from rich import box
+
     _RICH = True
 except Exception:
     _RICH = False
@@ -32,6 +33,7 @@ class ForwardStats:
     - No dependency on bittensor; validator passes metadata and per-task arrays.
     - Aggregates per-miner sums and counts to produce averages for this forward.
     """
+
     miner_uids: Sequence[int]
     miner_hotkeys: Sequence[str]
     miner_coldkeys: Sequence[str]
@@ -129,15 +131,17 @@ class ForwardStats:
         order = np.argsort(-avg_reward)  # desc by avg reward
         miners: List[Dict[str, Any]] = []
         for idx in order.tolist():
-            miners.append({
-                "uid": int(self.miner_uids[idx]),
-                "hotkey": str(self.miner_hotkeys[idx]),
-                "coldkey": str(self.miner_coldkeys[idx]),
-                "avg_reward": float(avg_reward[idx]),
-                "avg_eval_score": float(avg_eval[idx]),
-                "avg_execution_time": float(avg_time[idx]),
-                "sum_reward": float(self._sum_rewards[idx]),
-            })
+            miners.append(
+                {
+                    "uid": int(self.miner_uids[idx]),
+                    "hotkey": str(self.miner_hotkeys[idx]),
+                    "coldkey": str(self.miner_coldkeys[idx]),
+                    "avg_reward": float(avg_reward[idx]),
+                    "avg_eval_score": float(avg_eval[idx]),
+                    "avg_execution_time": float(avg_time[idx]),
+                    "sum_reward": float(self._sum_rewards[idx]),
+                }
+            )
 
         duration = time.time() - self._started_at if self._started_at > 0 else 0.0
         return {
@@ -183,16 +187,12 @@ class ForwardStats:
                     str(m["uid"]),
                     m["hotkey"],
                     m["coldkey"],
-                    f'{m["avg_reward"]:.4f}',
-                    f'{m["avg_eval_score"]:.4f}',
-                    f'{m["avg_execution_time"]:.3f}',
+                    f"{m['avg_reward']:.4f}",
+                    f"{m['avg_eval_score']:.4f}",
+                    f"{m['avg_execution_time']:.3f}",
                 )
 
-            meta = (
-                f'[dim]forward_id={summary.get("forward_id")}  '
-                f'tasks_sent={summary.get("tasks_sent")}  '
-                f'duration={summary.get("duration_sec"):.2f}s[/dim]'
-            )
+            meta = f"[dim]forward_id={summary.get('forward_id')}  tasks_sent={summary.get('tasks_sent')}  duration={summary.get('duration_sec'):.2f}s[/dim]"
 
             console = Console()
             console.print(tbl)
@@ -203,16 +203,12 @@ class ForwardStats:
         # Fallback: plain text
         lines = [
             "This Forward — Miners by Avg Reward",
-            f'forward_id={summary.get("forward_id")} tasks_sent={summary.get("tasks_sent")} '
-            f'duration={summary.get("duration_sec"):.2f}s',
+            f"forward_id={summary.get('forward_id')} tasks_sent={summary.get('tasks_sent')} duration={summary.get('duration_sec'):.2f}s",
             "",
-            f'{"#":>3} {"UID":>5} {"HOTKEY":<18} {"COLDKEY":<18} {"AvgReward":>10} {"AvgEval":>10} {"AvgTime(s)":>10}',
+            f"{'#':>3} {'UID':>5} {'HOTKEY':<18} {'COLDKEY':<18} {'AvgReward':>10} {'AvgEval':>10} {'AvgTime(s)':>10}",
         ]
         for i, m in enumerate(rows, start=1):
-            lines.append(
-                f'{i:>3} {m["uid"]:>5} {m["hotkey"]:<18.18} {m["coldkey"]:<18.18} '
-                f'{m["avg_reward"]:>10.4f} {m["avg_eval_score"]:>10.4f} {m["avg_execution_time"]:>10.3f}'
-            )
+            lines.append(f"{i:>3} {m['uid']:>5} {m['hotkey']:<18.18} {m['coldkey']:<18.18} {m['avg_reward']:>10.4f} {m['avg_eval_score']:>10.4f} {m['avg_execution_time']:>10.3f}")
         text = "\n".join(lines)
         if to_console:
             print(text)

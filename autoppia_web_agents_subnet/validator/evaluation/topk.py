@@ -9,6 +9,7 @@ import math
 try:
     from datasketch import MinHash, MinHashLSH
     import networkx as nx
+
     HAS_DATASKETCH = True
 except ImportError:
     HAS_DATASKETCH = False
@@ -35,6 +36,7 @@ def _norm_text_bucket(text: str | None) -> Tuple[str, str]:
         bl = "len_81p"
     # patrón (quitar dígitos y espacios)
     import re
+
     base = re.sub(r"\d+", "<num>", t)
     base = re.sub(r"\s+", " ", base).strip()
     ph = hashlib.sha1(base.encode()).hexdigest()[:8]
@@ -69,6 +71,7 @@ def _norm_url(url: str | None) -> str:
     # host + 2 primeros segmentos de path
     try:
         from urllib.parse import urlparse
+
         p = urlparse(url)
         host = (p.netloc or "").lower()
         segs = [s for s in (p.path or "").split("/") if s][:2]
@@ -103,7 +106,7 @@ def canonical_token(action) -> str:
 
     # scroll / direcciones
     dirs = []
-    for d in ("up","down","left","right"):
+    for d in ("up", "down", "left", "right"):
         if getattr(action, d, False):
             dirs.append(d)
     dir_tok = "dir:" + ("-".join(sorted(dirs)) if dirs else "none")
@@ -142,6 +145,7 @@ def canonical_token(action) -> str:
 def canonical_sequence(solution) -> List[str]:
     return [canonical_token(a) for a in solution.actions]
 
+
 # =========================
 # 2) Huellas multi-vista
 # =========================
@@ -150,7 +154,7 @@ def canonical_sequence(solution) -> List[str]:
 def shingles(tokens: List[str], k: int = 4) -> List[str]:
     if len(tokens) < k:
         return ["|".join(tokens)]
-    return ["|".join(tokens[i:i + k]) for i in range(len(tokens) - k + 1)]
+    return ["|".join(tokens[i : i + k]) for i in range(len(tokens) - k + 1)]
 
 
 def minhash_signature(shingle_set: Iterable[str], num_perm: int = 128):
@@ -176,13 +180,13 @@ def seq_hash_embed(tokens: List[str], dim: int = 256) -> List[float]:
 
 
 def cosine(a: List[float], b: List[float]) -> float:
-    return sum(x * y for x,y in zip(a,b))
+    return sum(x * y for x, y in zip(a, b))
 
 
 def weighted_edit_similarity(a: List[str], b: List[str]) -> float:
     # distancia de edición con coste bajo cuando tokens iguales; alto si distintos.
     # Implementación simple O(n*m) suficiente para candidatos.
-    n,m = len(a), len(b)
+    n, m = len(a), len(b)
     if n == 0 and m == 0:
         return 1.0
     dp = [[0] * (m + 1) for _ in range(n + 1)]
@@ -190,16 +194,16 @@ def weighted_edit_similarity(a: List[str], b: List[str]) -> float:
         dp[i][0] = i
     for j in range(m + 1):
         dp[0][j] = j
-    for i in range(1,n + 1):
-        for j in range(1,m + 1):
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
             cost_sub = 0 if a[i - 1] == b[j - 1] else 1.2  # sustituir distinto cuesta más
             dp[i][j] = min(
-                dp[i - 1][j] + 0.8,         # borrado
-                dp[i][j - 1] + 0.8,         # inserción
-                dp[i - 1][j - 1] + cost_sub   # sustitución
+                dp[i - 1][j] + 0.8,  # borrado
+                dp[i][j - 1] + 0.8,  # inserción
+                dp[i - 1][j - 1] + cost_sub,  # sustitución
             )
     dist = dp[n][m]
-    max_len = max(n,m) or 1
+    max_len = max(n, m) or 1
     # sim en [0,1]
     return max(0.0, 1.0 - dist / (1.2 * max_len))
 
@@ -234,6 +238,7 @@ def fingerprint_solution(sol) -> SolutionFingerprint:
     st = behavior_stats(toks)
     return SolutionFingerprint(sol.task_id, toks, sh, mh, emb, st)
 
+
 # =========================
 # 3) Similitud solución-solución y agregación por miner
 # =========================
@@ -267,7 +272,8 @@ def aggregate_by_miner(similarities_same_task: List[float]) -> float:
         return 0.0
     sims = sorted(similarities_same_task)
     mid = len(sims) // 2
-    return (sims[mid] if len(sims) % 2 else 0.5 * (sims[mid - 1] + sims[mid]))
+    return sims[mid] if len(sims) % 2 else 0.5 * (sims[mid - 1] + sims[mid])
+
 
 # =========================
 # 4) LSH para candidatos & cluster
@@ -297,7 +303,7 @@ class CandidateIndex:
             return list(self._store.items())
 
 
-def cluster_miners(miner_ids: List[str], S: Dict[Tuple[str,str], float], tau: float = 0.85):
+def cluster_miners(miner_ids: List[str], S: Dict[Tuple[str, str], float], tau: float = 0.85):
     if not HAS_DATASKETCH:
         # Fallback simple: agrupa por similitud directa
         clusters = []
@@ -320,11 +326,12 @@ def cluster_miners(miner_ids: List[str], S: Dict[Tuple[str,str], float], tau: fl
     G = nx.Graph()
     for m in miner_ids:
         G.add_node(m)
-    for (i,j), s in S.items():
+    for (i, j), s in S.items():
         if s >= tau:
             G.add_edge(i, j, weight=s)
     comps = list(nx.connected_components(G))
     return comps
+
 
 # =========================
 # 5) Entry point principal
@@ -344,7 +351,7 @@ def compare_solutions(solutions: List[Any], min_shared_tasks: int = 6, tau: floa
         Dict con miner_id -> lista de miners en el mismo cluster
     """
     # Crear fingerprints por solución
-    fps_by_miner_task: Dict[Tuple[str,str], SolutionFingerprint] = {}
+    fps_by_miner_task: Dict[Tuple[str, str], SolutionFingerprint] = {}
     index = CandidateIndex(threshold=0.60, num_perm=128, bands=32, rows=4)
 
     for sol in solutions:
@@ -354,7 +361,7 @@ def compare_solutions(solutions: List[Any], min_shared_tasks: int = 6, tau: floa
         index.add(key, fp)
 
     # Comparar solo pares en la misma tarea
-    pair_sims_agg: Dict[Tuple[str,str], List[float]] = defaultdict(list)
+    pair_sims_agg: Dict[Tuple[str, str], List[float]] = defaultdict(list)
 
     # Para cada tarea, saca los miners que la resolvieron
     tasks = {}
@@ -364,19 +371,19 @@ def compare_solutions(solutions: List[Any], min_shared_tasks: int = 6, tau: floa
     for task_id, lst in tasks.items():
         # Comparar todos los pares en la misma tarea
         for i, (mi, fpi) in enumerate(lst):
-            for mj, fpj in lst[i + 1:]:
+            for mj, fpj in lst[i + 1 :]:
                 s = pair_similarity(fpi, fpj)
                 key = tuple(sorted((mi, mj)))
                 pair_sims_agg[key].append(s)
 
     # Agregar por pareja de miners y decidir clones
-    final_S: Dict[Tuple[str,str], float] = {}
+    final_S: Dict[Tuple[str, str], float] = {}
     for pair, sims in pair_sims_agg.items():
         if len(sims) >= min_shared_tasks:
             final_S[pair] = aggregate_by_miner(sims)
 
     # Marca "misma entidad" si S >= tau
-    miners = sorted({m for m,_ in fps_by_miner_task})
+    miners = sorted({m for m, _ in fps_by_miner_task})
     clusters = cluster_miners(miners, final_S, tau=tau)
 
     # Convertir a formato de salida
@@ -407,4 +414,3 @@ def get_similarity_score(sol1: Any, sol2: Any) -> float:
     fp1 = fingerprint_solution(sol1)
     fp2 = fingerprint_solution(sol2)
     return pair_similarity(fp1, fp2)
-

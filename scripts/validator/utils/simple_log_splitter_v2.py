@@ -65,7 +65,7 @@ def tail_file(filepath: Path):
         # Remember original inode
         try:
             original_inode = filepath.stat().st_ino
-        except:
+        except OSError:
             original_inode = None
 
         # Go to end of file
@@ -86,7 +86,7 @@ def tail_file(filepath: Path):
                         if current_inode != original_inode:
                             print(f"[{datetime.now()}] File rotated, reopening...", flush=True)
                             return  # Exit and let main loop reopen
-                    except:
+                    except OSError:
                         pass
 
 

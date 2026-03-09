@@ -49,10 +49,7 @@ def _validate_submit_inputs(
 
     normalized, ref = normalize_and_validate_github_url(github, require_ref=True)
     if normalized is None or not ref:
-        raise MinerCliError(
-            f"Invalid GitHub URL: {github}\n"
-            "       Must be https://github.com/owner/repo/tree/<ref> or /commit/<sha>."
-        )
+        raise MinerCliError(f"Invalid GitHub URL: {github}\n       Must be https://github.com/owner/repo/tree/<ref> or /commit/<sha>.")
 
     stripped_name = agent_name.strip()
     if not stripped_name:

@@ -24,7 +24,7 @@ def mock_miner() -> Mock:
     miner.ip = "127.0.0.1"
     miner.port = 8091
     miner.stake = 100.0
-    
+
     return miner
 
 
@@ -32,7 +32,7 @@ def mock_miner() -> Mock:
 def agent_responses() -> List[Dict[str, Any]]:
     """
     Sample agent response payloads from miners during handshake.
-    
+
     Returns a list of valid agent responses that would be received
     during the round start handshake phase.
     """
@@ -86,7 +86,7 @@ def invalid_agent_responses() -> List[Dict[str, Any]]:
 def task_solutions() -> List[Dict[str, Any]]:
     """
     Sample task solution data for testing evaluation.
-    
+
     Returns task solutions with various scores to test
     score calculation and aggregation.
     """

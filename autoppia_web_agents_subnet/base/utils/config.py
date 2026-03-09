@@ -59,9 +59,7 @@ def check_config(cls, config: "bt.Config"):
 
     if not config.neuron.dont_save_events:
         # Add custom event logger for the events.
-        events_logger = setup_events_logger(
-            config.neuron.full_path, config.neuron.events_retention_size
-        )
+        events_logger = setup_events_logger(config.neuron.full_path, config.neuron.events_retention_size)
         bt.logging.register_primary_logger(events_logger.name)
 
 
@@ -111,10 +109,7 @@ def add_args(cls, parser):
     parser.add_argument(
         "--logging.suppress_dendrite_noise",
         action=argparse.BooleanOptionalAction,
-        help=(
-            "Suppress very noisy dendrite connection DEBUG logs (e.g. ClientConnectorError/TimeoutError) "
-            "without raising global log level."
-        ),
+        help=("Suppress very noisy dendrite connection DEBUG logs (e.g. ClientConnectorError/TimeoutError) without raising global log level."),
         default=True,
     )
 

@@ -1,7 +1,7 @@
 # autoppia_web_agents_subnet/validator/visualization/weights_table.py
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Any
 
 import numpy as np
 
@@ -9,6 +9,7 @@ try:
     from rich.table import Table
     from rich.console import Console
     from rich import box
+
     _RICH = True
 except Exception:
     _RICH = False
@@ -26,14 +27,16 @@ def render_weights_table(processed_weight_uids: np.ndarray, processed_weights: n
         if weight > 0:  # Only show non-zero weights
             hotkey = metagraph.hotkeys[uid] if uid < len(metagraph.hotkeys) else "<unknown>"
             coldkey = metagraph.coldkeys[uid] if uid < len(metagraph.coldkeys) else "<unknown>"
-            rows.append({
-                "uid": int(uid),
-                "hotkey": hotkey,
-                "hotkey_prefix": hotkey[:15],  # Show first 15 chars
-                "coldkey": coldkey,
-                "coldkey_prefix": coldkey[:15],  # Show first 15 chars
-                "weight": float(weight),
-            })
+            rows.append(
+                {
+                    "uid": int(uid),
+                    "hotkey": hotkey,
+                    "hotkey_prefix": hotkey[:15],  # Show first 15 chars
+                    "coldkey": coldkey,
+                    "coldkey_prefix": coldkey[:15],  # Show first 15 chars
+                    "weight": float(weight),
+                }
+            )
 
     # Sort by weight desc
     rows.sort(key=lambda r: r["weight"], reverse=True)
@@ -67,7 +70,7 @@ def render_weights_table(processed_weight_uids: np.ndarray, processed_weights: n
                 str(r["uid"]),
                 r["hotkey_prefix"],
                 r["coldkey_prefix"],
-                f'[{weight_style}]{r["weight"]:.6f}[/{weight_style}]',
+                f"[{weight_style}]{r['weight']:.6f}[/{weight_style}]",
             )
 
         console = Console()
@@ -77,12 +80,10 @@ def render_weights_table(processed_weight_uids: np.ndarray, processed_weights: n
     # Fallback plain text table
     lines = [
         "🏆 Final Weights (On-Chain)",
-        f'{"#":>3} {"UID":>5} {"HOTKEY":<18} {"COLDKEY":<18} {"Weight":>10}',
+        f"{'#':>3} {'UID':>5} {'HOTKEY':<18} {'COLDKEY':<18} {'Weight':>10}",
     ]
     for i, r in enumerate(rows, start=1):
-        lines.append(
-            f'{i:>3} {r["uid"]:>5} {r["hotkey_prefix"]:<18.18} {r["coldkey_prefix"]:<18.18} {r["weight"]:>10.6f}'
-        )
+        lines.append(f"{i:>3} {r['uid']:>5} {r['hotkey_prefix']:<18.18} {r['coldkey_prefix']:<18.18} {r['weight']:>10.6f}")
     text = "\n".join(lines)
     if to_console:
         print(text)

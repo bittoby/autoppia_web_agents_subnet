@@ -27,6 +27,7 @@ class StartRoundSynapse(Synapse):
       - agent_image: URL (or data URI) to agent logo/avatar.
       - github_url: repository with miner/agent code.
     """
+
     # Request (validator -> miner)
     version: str = ""
     round_id: str

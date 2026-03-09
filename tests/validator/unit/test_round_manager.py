@@ -8,7 +8,6 @@ import pytest
 from autoppia_web_agents_subnet.validator.round_manager import (
     RoundManager,
     RoundPhase,
-    PhaseTransition,
 )
 
 

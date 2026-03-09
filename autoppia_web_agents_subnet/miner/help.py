@@ -18,7 +18,7 @@ from rich.table import Table
 
 def _single_paragraph(text: str) -> str:
     """Collapse multiline help text into a single paragraph."""
-    return ' '.join(text.split())
+    return " ".join(text.split())
 
 
 def _collect_help_rows(params: list[click.Parameter], ctx: click.Context) -> list[tuple[str, str]]:
@@ -28,49 +28,49 @@ def _collect_help_rows(params: list[click.Parameter], ctx: click.Context) -> lis
         record = param.get_help_record(ctx)
         if record is None:
             continue
-        rows.append((record[0], record[1] or ''))
+        rows.append((record[0], record[1] or ""))
     return rows
 
 
 def _render_usage(console: Console, usage: str) -> None:
     """Render the usage line with styling."""
     usage = usage.strip()
-    if usage.startswith('Usage:'):
-        usage_template = usage[len('Usage:') :].strip()
+    if usage.startswith("Usage:"):
+        usage_template = usage[len("Usage:") :].strip()
         console.print(
             Padding(
-                f'[bold yellow]Usage:[/bold yellow] [bold white]{escape(usage_template)}[/bold white]',
+                f"[bold yellow]Usage:[/bold yellow] [bold white]{escape(usage_template)}[/bold white]",
                 (0, 0, 0, 1),
             )
         )
         console.print()
         return
 
-    console.print(Padding(f'[bold white]{escape(usage)}[/bold white]', (0, 0, 0, 1)))
+    console.print(Padding(f"[bold white]{escape(usage)}[/bold white]", (0, 0, 0, 1)))
     console.print()
 
 
 def _section_panel(
     title: str,
     rows: list[tuple[str, str]],
-    left_style: str = 'bold cyan',
-    right_style: str = 'bright_white',
+    left_style: str = "bold cyan",
+    right_style: str = "bright_white",
 ) -> Panel:
     table = Table.grid(expand=True)
-    table.add_column(style=left_style, no_wrap=True, ratio=1, justify='left')
-    table.add_column(style=right_style, ratio=4, justify='left')
+    table.add_column(style=left_style, no_wrap=True, ratio=1, justify="left")
+    table.add_column(style=right_style, ratio=4, justify="left")
 
     if rows:
         for left, right in rows:
             table.add_row(left, right)
     else:
-        table.add_row('-', 'No entries')
+        table.add_row("-", "No entries")
 
     return Panel(
         table,
-        title=f' {title} ',
-        title_align='left',
-        border_style='grey66',
+        title=f" {title} ",
+        title_align="left",
+        border_style="grey66",
         box=box.ROUNDED,
         padding=(0, 1),
     )
@@ -79,43 +79,43 @@ def _section_panel(
 def _parse_option_decl(option_decl: str) -> tuple[str, str, str]:
     """Split Click option declaration into long names, short alias, and type."""
     names_part = option_decl.strip()
-    option_type = ''
+    option_type = ""
 
-    if ' ' in names_part:
-        maybe_names, maybe_type = names_part.rsplit(' ', 1)
-        if maybe_type.isupper() or (maybe_type.startswith('[') and maybe_type.endswith(']')):
+    if " " in names_part:
+        maybe_names, maybe_type = names_part.rsplit(" ", 1)
+        if maybe_type.isupper() or (maybe_type.startswith("[") and maybe_type.endswith("]")):
             names_part = maybe_names
             option_type = maybe_type
 
-    tokens = [token.strip() for token in names_part.split(',') if token.strip()]
-    short_tokens = [token for token in tokens if token.startswith('-') and not token.startswith('--')]
-    long_tokens = [token for token in tokens if token.startswith('--')]
+    tokens = [token.strip() for token in names_part.split(",") if token.strip()]
+    short_tokens = [token for token in tokens if token.startswith("-") and not token.startswith("--")]
+    long_tokens = [token for token in tokens if token.startswith("--")]
 
-    long_names = ','.join(long_tokens) if long_tokens else ','.join(tokens)
-    short_alias = ','.join(short_tokens)
+    long_names = ",".join(long_tokens) if long_tokens else ",".join(tokens)
+    short_alias = ",".join(short_tokens)
     return long_names, short_alias, option_type
 
 
 def _options_panel(rows: list[tuple[str, str]]) -> Panel:
     """Render btcli-style options panel with explicit type column."""
     table = Table.grid(expand=True)
-    table.add_column(style='bold cyan', no_wrap=True, ratio=4, justify='left')
-    table.add_column(style='bold green', no_wrap=True, ratio=1, justify='left')
-    table.add_column(style='bold yellow', no_wrap=True, ratio=1, justify='left')
-    table.add_column(style='bright_white', ratio=7, justify='left')
+    table.add_column(style="bold cyan", no_wrap=True, ratio=4, justify="left")
+    table.add_column(style="bold green", no_wrap=True, ratio=1, justify="left")
+    table.add_column(style="bold yellow", no_wrap=True, ratio=1, justify="left")
+    table.add_column(style="bright_white", ratio=7, justify="left")
 
     if rows:
         for decl, description in rows:
             long_names, short_alias, option_type = _parse_option_decl(decl)
-            table.add_row(long_names, short_alias, option_type, description or '')
+            table.add_row(long_names, short_alias, option_type, description or "")
     else:
-        table.add_row('-', '-', '-', 'No entries')
+        table.add_row("-", "-", "-", "No entries")
 
     return Panel(
         table,
-        title=' Options ',
-        title_align='left',
-        border_style='grey66',
+        title=" Options ",
+        title_align="left",
+        border_style="grey66",
         box=box.ROUNDED,
         padding=(0, 1),
     )
@@ -133,15 +133,15 @@ class StyledCommand(click.Command):
         with console.capture() as capture:
             _render_usage(console, self.get_usage(ctx))
 
-            help_text = cleandoc(self.help or '').replace('\x08', '')
+            help_text = cleandoc(self.help or "").replace("\x08", "")
             if help_text:
                 console.print(Padding(help_text, (0, 0, 0, 1)))
 
             console.print(_options_panel(self._help_options_rows(ctx)))
 
-            footer = getattr(self, 'help_footer', None)
+            footer = getattr(self, "help_footer", None)
             if footer:
-                console.print(f'\n{footer}')
+                console.print(f"\n{footer}")
 
         return capture.get()
 
@@ -170,11 +170,11 @@ class StyledGroup(click.Group):
             desc = cmd.get_short_help_str(limit=150)
             aliases = alias_map.get(name, [])
             if aliases:
-                quoted = ', '.join(f'`{alias}`' for alias in sorted(aliases))
-                alias_label = 'alias' if len(aliases) == 1 else 'aliases'
-                alias_text = f'{alias_label}: {quoted}'
+                quoted = ", ".join(f"`{alias}`" for alias in sorted(aliases))
+                alias_label = "alias" if len(aliases) == 1 else "aliases"
+                alias_text = f"{alias_label}: {quoted}"
                 if desc:
-                    desc = f'{desc.rstrip(".")}, {alias_text}'
+                    desc = f"{desc.rstrip('.')}, {alias_text}"
                 else:
                     desc = alias_text
 
@@ -188,11 +188,11 @@ class StyledGroup(click.Group):
         with console.capture() as capture:
             _render_usage(console, self.get_usage(ctx))
 
-            help_text = cleandoc(self.help or '')
+            help_text = cleandoc(self.help or "")
             if help_text:
                 console.print(
                     Padding(
-                        f'[bright_white]{escape(_single_paragraph(help_text))}[/bright_white]',
+                        f"[bright_white]{escape(_single_paragraph(help_text))}[/bright_white]",
                         (0, 0, 0, 1),
                     )
                 )
@@ -200,11 +200,11 @@ class StyledGroup(click.Group):
 
             console.print(_options_panel(self._help_options_rows(ctx)))
             console.print()
-            console.print(_section_panel('Commands', self._help_commands_rows(ctx)))
+            console.print(_section_panel("Commands", self._help_commands_rows(ctx)))
 
-            footer = getattr(self, 'help_footer', None)
+            footer = getattr(self, "help_footer", None)
             if footer:
-                console.print(f'\n{footer}')
+                console.print(f"\n{footer}")
 
         return capture.get()
 
