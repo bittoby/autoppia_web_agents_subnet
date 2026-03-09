@@ -69,6 +69,9 @@ jobs:
           echo "::error::Dependency vulnerabilities found (pip-audit: ${{ steps.pip_audit.outputs.pip_audit_vuln_count }}). Fix them before merging."
           exit 1
 
+      - name: Ensure setuptools (pkg_resources) for bittensor/munch
+        run: pip install "setuptools>=78.1.1"
+
       - name: Run tests with coverage
         env:
           VALIDATOR_NAME: sonar-ci
