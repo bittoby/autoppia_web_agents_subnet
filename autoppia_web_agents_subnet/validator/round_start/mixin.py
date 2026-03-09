@@ -1,36 +1,37 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import time
 from collections import Counter
+
 import bittensor as bt
 
 from autoppia_web_agents_subnet.opensource.utils_docker import get_client
-from autoppia_web_agents_subnet.utils.log_colors import round_details_tag
-from autoppia_web_agents_subnet.utils.logging import ColoredLogger
-
-from autoppia_web_agents_subnet.protocol import StartRoundSynapse
-from autoppia_web_agents_subnet.validator.models import AgentInfo
-from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
-from autoppia_web_agents_subnet.validator.round_start.types import RoundStartResult
 from autoppia_web_agents_subnet.opensource.utils_git import (
     normalize_and_validate_github_url,
     resolve_remote_ref_commit,
 )
+from autoppia_web_agents_subnet.protocol import StartRoundSynapse
+from autoppia_web_agents_subnet.utils.log_colors import round_details_tag
+from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 from autoppia_web_agents_subnet.validator.config import (
-    SKIP_ROUND_IF_STARTED_AFTER_FRACTION,
-    MIN_MINER_STAKE_ALPHA,
-    MAX_MINERS_PER_ROUND_BY_STAKE,
-    MAX_MINERS_PER_COLDKEY,
-    MAX_MINERS_PER_REPO,
-    EVALUATION_COOLDOWN_MIN_ROUNDS,
     EVALUATION_COOLDOWN_MAX_ROUNDS,
+    EVALUATION_COOLDOWN_MIN_ROUNDS,
     EVALUATION_COOLDOWN_NO_RESPONSE_BADNESS,
     EVALUATION_COOLDOWN_ZERO_SCORE_BADNESS,
+    MAX_MINERS_PER_COLDKEY,
+    MAX_MINERS_PER_REPO,
+    MAX_MINERS_PER_ROUND_BY_STAKE,
+    MIN_MINER_STAKE_ALPHA,
     SANDBOX_GATEWAY_PORT,
+    SKIP_ROUND_IF_STARTED_AFTER_FRACTION,
 )
+from autoppia_web_agents_subnet.validator.models import AgentInfo
+from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
 from autoppia_web_agents_subnet.validator.round_start.synapse_handler import send_start_round_synapse_to_miners
+from autoppia_web_agents_subnet.validator.round_start.types import RoundStartResult
 
 
 def _commits_match(a: str | None, b: str | None) -> bool:
@@ -48,9 +49,7 @@ def _commits_match(a: str | None, b: str | None) -> bool:
         return False
     if a_s == b_s:
         return True
-    if len(a_s) >= 7 and len(b_s) >= 7 and (a_s.startswith(b_s) or b_s.startswith(a_s)):
-        return True
-    return False
+    return bool(len(a_s) >= 7 and len(b_s) >= 7 and (a_s.startswith(b_s) or b_s.startswith(a_s)))
 
 
 def _clear_queue_best_effort(q: object) -> None:
@@ -87,7 +86,7 @@ def _resolve_adaptive_cooldown_rounds(
     if min_rounds == max_rounds:
         return min_rounds
 
-    best_score = float(best_score_ever) if isinstance(best_score_ever, (int, float)) else 1.0
+    best_score = float(best_score_ever) if isinstance(best_score_ever, int | float) else 1.0
     if best_score <= 0.0:
         best_score = 1.0
 
@@ -103,7 +102,7 @@ def _resolve_adaptive_cooldown_rounds(
         badness += float(EVALUATION_COOLDOWN_NO_RESPONSE_BADNESS)
 
     badness = max(0.0, min(1.0, badness))
-    cooldown = min_rounds + int(round(badness * (max_rounds - min_rounds)))
+    cooldown = min_rounds + round(badness * (max_rounds - min_rounds))
     return max(min_rounds, min(max_rounds, cooldown))
 
 
@@ -215,10 +214,8 @@ class ValidatorRoundStartMixin:
         self.round_manager.set_season_start_block(season_start_block)
         self.round_manager.sync_boundaries(current_block)
         reference_block = int(getattr(self.round_manager, "start_block", season_start_block) or season_start_block)
-        try:
+        with contextlib.suppress(Exception):
             self.season_manager.season_number = int(self.season_manager.get_season_number(reference_block))
-        except Exception:
-            pass
         current_fraction = float(self.round_manager.fraction_elapsed(current_block))
 
         if current_fraction > SKIP_ROUND_IF_STARTED_AFTER_FRACTION:
@@ -264,10 +261,8 @@ class ValidatorRoundStartMixin:
 
         # Configure per-round log file (data/logs/season-<season>-round-<round>.log).
         round_id_for_log = self.current_round_id
-        try:
+        with contextlib.suppress(Exception):
             ColoredLogger.set_round_log_file(str(round_id_for_log))
-        except Exception:
-            pass
 
         wait_info = self.round_manager.get_wait_info(current_block)
 
@@ -308,10 +303,8 @@ class ValidatorRoundStartMixin:
         """
         # Each round we rebuild the evaluation queue from scratch (based on the
         # current stake window + cooldown) to keep evaluation cost/time bounded.
-        try:
+        with contextlib.suppress(Exception):
             _clear_queue_best_effort(getattr(self, "agents_queue", None))
-        except Exception:
-            pass
 
         # Guard: metagraph must be available.
         metagraph = getattr(self, "metagraph", None)
@@ -394,10 +387,8 @@ class ValidatorRoundStartMixin:
         )
 
         # Expose the eligible window for the evaluation phase (and for logs).
-        try:
+        with contextlib.suppress(Exception):
             self.round_candidate_uids = list(candidate_uids)
-        except Exception:
-            pass
 
         # Log a compact summary of candidate stakes.
         try:
@@ -482,26 +473,29 @@ class ValidatorRoundStartMixin:
                 # can evaluate it once the cooldown expires even if the miner
                 # fails to respond in this round.
                 existing = self.agents_dict.get(uid)
-                if isinstance(existing, AgentInfo) and existing.pending_github_url:
-                    if not _is_cooldown_active(
+                if (
+                    isinstance(existing, AgentInfo)
+                    and existing.pending_github_url
+                    and not _is_cooldown_active(
                         current_round=current_round,
                         last_evaluated_round=getattr(existing, "last_evaluated_round", None),
                         miner_score=getattr(existing, "score", 0.0),
                         best_score_ever=getattr(self, "_best_score_ever", None),
                         handshake_responded=False,
-                    ):
-                        pending_info = AgentInfo(
-                            uid=uid,
-                            agent_name=existing.pending_agent_name or existing.agent_name,
-                            agent_image=existing.pending_agent_image or existing.agent_image,
-                            github_url=existing.pending_github_url,
-                            normalized_repo=existing.pending_normalized_repo,
-                            git_commit=None,
-                        )
-                        self.agents_queue.put(pending_info)
-                        new_agents_count += 1
-                        queued_for_eval_count += 1
-                        restored_from_pending_count += 1
+                    )
+                ):
+                    pending_info = AgentInfo(
+                        uid=uid,
+                        agent_name=existing.pending_agent_name or existing.agent_name,
+                        agent_image=existing.pending_agent_image or existing.agent_image,
+                        github_url=existing.pending_github_url,
+                        normalized_repo=existing.pending_normalized_repo,
+                        git_commit=None,
+                    )
+                    self.agents_queue.put(pending_info)
+                    new_agents_count += 1
+                    queued_for_eval_count += 1
+                    restored_from_pending_count += 1
                 continue
 
             responded_count += 1
@@ -563,7 +557,7 @@ class ValidatorRoundStartMixin:
                         _keys = list(_dump.keys()) if isinstance(_dump, dict) else []
                         bt.logging.warning(
                             f"[handshake] DEBUG first missing_fields: uid={uid} "
-                            f"agent_name={repr(agent_name)} github_url={repr(raw_github_url)} "
+                            f"agent_name={agent_name!r} github_url={raw_github_url!r} "
                             f"resp_type={type(resp).__name__} status_code={_status_code} "
                             f"status_message={_status_message!r} dump_keys={_keys}"
                         )
@@ -750,16 +744,10 @@ class ValidatorRoundStartMixin:
             commit_sha: str | None = None
             if normalized_repo and ref:
                 try:
-                    if "/commit/" in str(raw_github_url or ""):
-                        commit_sha = str(ref)
-                    else:
-                        commit_sha = resolve_remote_ref_commit(normalized_repo, ref)
+                    commit_sha = str(ref) if "/commit/" in str(raw_github_url or "") else resolve_remote_ref_commit(normalized_repo, ref)
                 except Exception:
                     commit_sha = None
-            if commit_sha and normalized_repo:
-                commit_url = f"{normalized_repo}/commit/{commit_sha}"
-            else:
-                commit_url = raw_github_url
+            commit_url = f"{normalized_repo}/commit/{commit_sha}" if commit_sha and normalized_repo else raw_github_url
 
             agent_info = AgentInfo(
                 uid=uid,
@@ -770,10 +758,8 @@ class ValidatorRoundStartMixin:
                 git_commit=commit_sha,
             )
             ColoredLogger.info(agent_info.__repr__(), ColoredLogger.GREEN)
-            try:
-                setattr(resp, "github_url", commit_url)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                resp.github_url = commit_url
 
             existing = self.agents_dict.get(uid)
             if isinstance(existing, AgentInfo):

@@ -8,9 +8,10 @@ This test simulates the COMPLETE flow:
 4. Verifies that agent_run stats are updated correctly
 """
 
-import pytest
-from unittest.mock import AsyncMock
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 from autoppia_web_agents_subnet.platform import models as iwa_models
 from autoppia_web_agents_subnet.platform.utils.task_flow import prepare_evaluation_payload

@@ -4,8 +4,10 @@ Integration tests for complete round flow.
 Tests the entire validator round workflow from start to finish.
 """
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+
 from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
 
 
@@ -15,7 +17,7 @@ class TestCompleteRound:
     """Test complete round flow."""
 
     async def test_round_progresses_through_all_phases(self, validator_with_agents, season_tasks):
-        from tests.conftest import _bind_evaluation_mixin, _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_evaluation_mixin, _bind_round_start_mixin, _bind_settlement_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
         validator_with_agents = _bind_settlement_mixin(validator_with_agents)
@@ -61,7 +63,7 @@ class TestCompleteRound:
                         assert RoundPhase.COMPLETE in phases
 
     async def test_round_evaluates_miners_and_calculates_rewards(self, validator_with_agents, season_tasks):
-        from tests.conftest import _bind_evaluation_mixin, _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_evaluation_mixin, _bind_round_start_mixin, _bind_settlement_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
         validator_with_agents = _bind_settlement_mixin(validator_with_agents)
@@ -103,7 +105,7 @@ class TestCompleteRound:
                                 assert agent.score is not None
 
     async def test_round_publishes_consensus_and_sets_weights(self, validator_with_agents):
-        from tests.conftest import _bind_evaluation_mixin, _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_evaluation_mixin, _bind_round_start_mixin, _bind_settlement_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
         validator_with_agents = _bind_settlement_mixin(validator_with_agents)
@@ -128,7 +130,7 @@ class TestCompleteRound:
                 validator._calculate_final_weights.assert_called_once()
 
     async def test_round_completes_with_complete_phase(self, validator_with_agents):
-        from tests.conftest import _bind_evaluation_mixin, _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_evaluation_mixin, _bind_round_start_mixin, _bind_settlement_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
         validator_with_agents = _bind_settlement_mixin(validator_with_agents)
@@ -155,7 +157,7 @@ class TestErrorHandling:
     """Test error handling in complete round flow."""
 
     async def test_round_handles_miner_timeout_gracefully(self, validator_with_agents, season_tasks):
-        from tests.conftest import _bind_evaluation_mixin, _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_evaluation_mixin, _bind_round_start_mixin, _bind_settlement_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
         validator_with_agents = _bind_settlement_mixin(validator_with_agents)
@@ -181,7 +183,7 @@ class TestErrorHandling:
             assert agents_evaluated == 0
 
     async def test_round_handles_sandbox_deployment_failure(self, validator_with_agents, season_tasks):
-        from tests.conftest import _bind_evaluation_mixin, _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_evaluation_mixin, _bind_round_start_mixin, _bind_settlement_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
         validator_with_agents = _bind_settlement_mixin(validator_with_agents)
@@ -207,7 +209,7 @@ class TestErrorHandling:
                     pytest.fail("Should handle deployment failure gracefully")
 
     async def test_round_handles_ipfs_failure(self, validator_with_agents):
-        from tests.conftest import _bind_evaluation_mixin, _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_evaluation_mixin, _bind_round_start_mixin, _bind_settlement_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
         validator_with_agents = _bind_settlement_mixin(validator_with_agents)
@@ -227,7 +229,7 @@ class TestErrorHandling:
                 await validator._run_settlement_phase(agents_evaluated=0)
 
     async def test_round_handles_consensus_failure(self, validator_with_agents):
-        from tests.conftest import _bind_evaluation_mixin, _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_evaluation_mixin, _bind_round_start_mixin, _bind_settlement_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
         validator_with_agents = _bind_settlement_mixin(validator_with_agents)

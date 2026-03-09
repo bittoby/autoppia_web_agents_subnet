@@ -29,12 +29,13 @@ async def test_evaluate_with_stateful_cua_does_not_mutate_task_url(monkeypatch):
     monkeypatch.setenv("VALIDATOR_ID", "validator-test")
 
     from autoppia_iwa.src.data_generation.tasks.classes import Task
+
     import autoppia_web_agents_subnet.validator.evaluation.stateful_cua_eval as module
 
     captured: dict[str, object] = {}
 
     class CapturingEvaluator:
-        def __init__(self, *, task, web_agent_id: str, **_):  # noqa: ANN001
+        def __init__(self, *, task, web_agent_id: str, **_):
             captured["task"] = task
             captured["web_agent_id"] = web_agent_id
 
@@ -44,7 +45,7 @@ async def test_evaluate_with_stateful_cua_does_not_mutate_task_url(monkeypatch):
                 snapshot=types.SimpleNamespace(html="", url=""),
             )
 
-        async def step(self, _action):  # noqa: ANN001
+        async def step(self, _action):
             return types.SimpleNamespace(
                 score=types.SimpleNamespace(raw_score=1.0, success=True),
                 snapshot=types.SimpleNamespace(html="", url=""),
@@ -54,7 +55,7 @@ async def test_evaluate_with_stateful_cua_does_not_mutate_task_url(monkeypatch):
             return None
 
         @property
-        def history(self):  # noqa: D401
+        def history(self):
             """Expose an empty history list for solution reconstruction."""
             return []
 

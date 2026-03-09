@@ -1,11 +1,89 @@
 # pyproject.toml
+# Copyright © 2024 Autoppia. MIT License.
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoppia_web_agents_subnet"
+dynamic = ["version", "dependencies"]
+description = "Autoppia - Web Agents Subnet 36 in Bittensor"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Autoppia" }]
+urls = { Homepage = "https://github.com/autoppia/autoppia_web_agents_subnet" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.scripts]
+autoppia-miner-cli = "autoppia_web_agents_subnet.miner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.dynamic]
+version = { attr = "autoppia_web_agents_subnet.__init__.SUBNET_IWA_VERSION" }
+dependencies = { file = "requirements.txt" }
+
+# -----------------------------------------------------------------------------
+# Tool config
+# -----------------------------------------------------------------------------
+
 [tool.black]
 line-length = 200
-# opcional:
-# target-version = ["py311"]
-# skip-string-normalization = true
+target-version = ["py311"]
+skip-string-normalization = true
+
+[tool.ruff]
+line-length = 200
+target-version = "py311"
+fix = true
+unsafe-fixes = true
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E402", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["SIM117"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["autoppia_web_agents_subnet"]
+known-third-party = [
+    "bittensor", "docker", "filelock", "httpx", "hypothesis", "loguru", "numpy",
+    "pydantic", "psutil", "requests", "rich", "setuptools", "xmldiff",
+]
+combine-as-imports = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--import-mode=importlib"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::RuntimeWarning:inspect",
+    "ignore::RuntimeWarning:unittest.mock",
+]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
@@ -14,8 +92,9 @@ markers = [
     "slow: Slow-running tests",
     "requires_docker: Tests that require Docker",
 ]
-asyncio_default_fixture_loop_scope = "function"
-filterwarnings = [
-    "ignore::RuntimeWarning:inspect",
-    "ignore::RuntimeWarning:unittest.mock",
-]
+
+[tool.sonar]
+projectKey = "autoppia-web-agents-subnet"
+sources = "autoppia_web_agents_subnet"
+tests = "tests"
+exclusions = "**/__pycache__/**,**/.git/**,**/seed.py,**/console.py"

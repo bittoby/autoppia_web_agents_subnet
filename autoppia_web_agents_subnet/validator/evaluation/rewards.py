@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from autoppia_web_agents_subnet.validator.config import (
-    TASK_TIMEOUT_SECONDS,
-    REWARD_TASK_DOLLAR_COST_NORMALIZATOR,
-    EVAL_SCORE_WEIGHT,
-    TIME_WEIGHT,
     COST_WEIGHT,
+    EVAL_SCORE_WEIGHT,
+    REWARD_TASK_DOLLAR_COST_NORMALIZATOR,
+    TASK_TIMEOUT_SECONDS,
+    TIME_WEIGHT,
 )
 
 

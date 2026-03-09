@@ -58,7 +58,7 @@ def _validate_miner_env() -> None:
 
 class Miner(BaseMinerNeuron):
     def __init__(self, config=None):
-        super(Miner, self).__init__(config=config)
+        super().__init__(config=config)
         _validate_miner_env()
 
     # ────────────────────────── Round Handshake ──────────────────────────

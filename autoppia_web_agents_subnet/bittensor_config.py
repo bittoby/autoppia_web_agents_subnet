@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import sys
-import subprocess
 import argparse
+import subprocess
+import sys
 from pathlib import Path
-import bittensor as bt
 
+import bittensor as bt
 
 # ───────────────────────── utilities ───────────────────────── #
 

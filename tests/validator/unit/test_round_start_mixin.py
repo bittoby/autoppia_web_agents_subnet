@@ -4,8 +4,10 @@ Unit tests for ValidatorRoundStartMixin.
 Tests round start logic, handshake, and minimum block waiting.
 """
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+
 from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
 
 

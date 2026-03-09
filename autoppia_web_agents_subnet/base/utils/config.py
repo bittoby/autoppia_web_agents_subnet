@@ -16,10 +16,12 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+import argparse
 import os
 import subprocess
-import argparse
+
 import bittensor as bt
+
 from .logging import setup_events_logger
 
 
@@ -43,15 +45,8 @@ def check_config(cls, config: "bt.Config"):
     r"""Checks/validates the config namespace object."""
     bt.logging.check_config(config)
 
-    full_path = os.path.expanduser(
-        "{}/{}/{}/netuid{}/{}".format(
-            config.logging.logging_dir,  # TODO: change from ~/.bittensor/miners to ~/.bittensor/neurons
-            config.wallet.name,
-            config.wallet.hotkey,
-            config.netuid,
-            config.neuron.name,
-        )
-    )
+    # Path: logging_dir/wallet/hotkey/netuid/neuron (TODO: change from ~/.bittensor/miners to ~/.bittensor/neurons)
+    full_path = os.path.expanduser(f"{config.logging.logging_dir}/{config.wallet.name}/{config.wallet.hotkey}/netuid{config.netuid}/{config.neuron.name}")
     print("full path:", full_path)
     config.neuron.full_path = os.path.expanduser(full_path)
     if not os.path.exists(config.neuron.full_path):

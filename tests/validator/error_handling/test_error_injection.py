@@ -4,8 +4,9 @@ Error injection tests for validator workflow.
 Tests graceful failure handling when external dependencies fail.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 
 @pytest.mark.unit
@@ -107,10 +108,10 @@ class TestIPFSErrors:
     @pytest.mark.asyncio
     async def test_consensus_handles_ipfs_upload_failure(self, mock_async_subtensor, dummy_validator):
         """Test consensus handles IPFS upload failure gracefully."""
-        from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
-
         # Mock IPFS client that fails
         from unittest.mock import AsyncMock
+
+        from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
 
         mock_ipfs = MagicMock()
         mock_ipfs.add_json_async = AsyncMock(side_effect=Exception("IPFS unavailable"))
@@ -316,13 +317,15 @@ class TestSandboxErrors:
         validator_with_agents.sandbox_manager.cleanup_agent = Mock()
 
         # Mock evaluation to raise exception
-        with patch("autoppia_web_agents_subnet.validator.evaluation.mixin.evaluate_with_stateful_cua", new=AsyncMock(side_effect=Exception("Evaluation error"))):
-            with patch(
+        with (
+            patch("autoppia_web_agents_subnet.validator.evaluation.mixin.evaluate_with_stateful_cua", new=AsyncMock(side_effect=Exception("Evaluation error"))),
+            patch(
                 "autoppia_web_agents_subnet.validator.evaluation.mixin.resolve_remote_ref_commit",
                 return_value="deadbeef",
-            ):
-                # Should not crash
-                await validator_with_agents._run_evaluation_phase()
+            ),
+        ):
+            # Should not crash
+            await validator_with_agents._run_evaluation_phase()
 
         # Agent score should remain 0
         assert agent.score == 0.0

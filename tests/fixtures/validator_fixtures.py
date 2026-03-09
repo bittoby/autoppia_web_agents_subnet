@@ -8,16 +8,17 @@ Provides fixtures for:
 - SeasonManager instances
 """
 
+from typing import Any
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
-from typing import Dict, Any
 
 from autoppia_web_agents_subnet.validator.round_manager import RoundManager
 from autoppia_web_agents_subnet.validator.season_manager import SeasonManager
 
 
 @pytest.fixture
-def mock_validator_config() -> Dict[str, Any]:
+def mock_validator_config() -> dict[str, Any]:
     """
     Minimal validator configuration for testing.
     """
@@ -39,7 +40,7 @@ def mock_validator_config() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def round_manager(mock_validator_config: Dict[str, Any]) -> RoundManager:
+def round_manager(mock_validator_config: dict[str, Any]) -> RoundManager:
     """
     Create a RoundManager instance with test configuration.
     """
@@ -51,7 +52,7 @@ def round_manager(mock_validator_config: Dict[str, Any]) -> RoundManager:
 
 
 @pytest.fixture
-def season_manager(mock_validator_config: Dict[str, Any]) -> SeasonManager:
+def season_manager(mock_validator_config: dict[str, Any]) -> SeasonManager:
     """
     Create a SeasonManager instance with test configuration.
     """
@@ -59,7 +60,7 @@ def season_manager(mock_validator_config: Dict[str, Any]) -> SeasonManager:
 
 
 @pytest.fixture
-def dummy_validator(mock_validator_config: Dict[str, Any]) -> Mock:
+def dummy_validator(mock_validator_config: dict[str, Any]) -> Mock:
     """
     Create a mock validator with all necessary attributes and mixins.
 
@@ -142,6 +143,6 @@ def validator_with_agents(dummy_validator: Mock) -> Mock:
     # Update queue mock to return agents
     dummy_validator.agents_queue.empty = Mock(return_value=False)
     agents_list = list(dummy_validator.agents_dict.values())
-    dummy_validator.agents_queue.get = Mock(side_effect=agents_list + [Exception("Queue empty")])
+    dummy_validator.agents_queue.get = Mock(side_effect=[*agents_list, Exception("Queue empty")])
 
     return dummy_validator

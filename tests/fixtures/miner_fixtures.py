@@ -7,9 +7,10 @@ Provides fixtures for:
 - Task solution data
 """
 
-import pytest
+from typing import Any
 from unittest.mock import Mock
-from typing import Dict, Any, List
+
+import pytest
 
 
 @pytest.fixture
@@ -29,7 +30,7 @@ def mock_miner() -> Mock:
 
 
 @pytest.fixture
-def agent_responses() -> List[Dict[str, Any]]:
+def agent_responses() -> list[dict[str, Any]]:
     """
     Sample agent response payloads from miners during handshake.
 
@@ -59,7 +60,7 @@ def agent_responses() -> List[Dict[str, Any]]:
 
 
 @pytest.fixture
-def invalid_agent_responses() -> List[Dict[str, Any]]:
+def invalid_agent_responses() -> list[dict[str, Any]]:
     """
     Sample invalid agent responses for testing error handling.
     """
@@ -83,7 +84,7 @@ def invalid_agent_responses() -> List[Dict[str, Any]]:
 
 
 @pytest.fixture
-def task_solutions() -> List[Dict[str, Any]]:
+def task_solutions() -> list[dict[str, Any]]:
     """
     Sample task solution data for testing evaluation.
 

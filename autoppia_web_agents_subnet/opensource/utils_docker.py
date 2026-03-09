@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import time
-from datetime import datetime, timezone
-from typing import Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime
 
 import docker
 from docker.errors import NotFound
@@ -81,7 +82,7 @@ def _docker_created_epoch(created: str) -> float:
             break
     s = s.split(".", 1)[0]
     try:
-        dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
         return float(dt.timestamp())
     except Exception:
         return 0.0
@@ -158,10 +159,7 @@ def garbage_collect_stale_containers(
 
             cmd = cfg.get("Cmd") or []
             image = str(cfg.get("Image") or "")
-            if isinstance(cmd, list):
-                cmd_s = " ".join(str(x) for x in cmd)
-            else:
-                cmd_s = str(cmd)
+            cmd_s = " ".join(str(x) for x in cmd) if isinstance(cmd, list) else str(cmd)
 
             # Heuristic: Docker build step containers typically have '#(nop)' in Cmd and
             # refer to an untagged digest image. This is intentionally conservative so
@@ -181,16 +179,10 @@ def garbage_collect_stale_containers(
 
 
 def stop_and_remove(container) -> None:
-    try:
+    with contextlib.suppress(Exception):
         container.stop(timeout=10)
-    except Exception:
-        # Ignore errors when stopping (container might already be stopped)
-        pass
-    try:
+    with contextlib.suppress(Exception):
         container.remove(force=True)
-    except Exception:
-        # Ignore errors when removing (container might not exist)
-        pass
 
 
 def cleanup_containers(names: Iterable[str]) -> None:

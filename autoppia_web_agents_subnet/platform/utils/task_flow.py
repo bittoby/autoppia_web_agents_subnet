@@ -1,22 +1,23 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import contextlib
 import re
-from datetime import datetime, timezone
-
-import httpx
+from datetime import UTC, datetime
+from typing import Any
 
 import bittensor as bt
-from autoppia_web_agents_subnet.platform import models as iwa_models
-from autoppia_web_agents_subnet.platform import client as iwa_main
+import httpx
+
+from autoppia_web_agents_subnet.platform import client as iwa_main, models as iwa_models
+
 from .iwa_core import (
-    log_iwap_phase,
-    log_gif_event,
     extract_gif_bytes,
+    log_gif_event,
+    log_iwap_phase,
 )
 
 
-def _normalize_action_payload(action: Any) -> Dict[str, Any]:
+def _normalize_action_payload(action: Any) -> dict[str, Any]:
     """
     Normalize heterogeneous action objects into a JSON-serializable dict.
 
@@ -28,7 +29,7 @@ def _normalize_action_payload(action: Any) -> Dict[str, Any]:
     Also flattens nested "action" or "attributes" payloads when present,
     so stored actions are reproducible (selector/text/url/x/y, etc.).
     """
-    action_dict: Dict[str, Any] = {}
+    action_dict: dict[str, Any] = {}
 
     if action is None:
         return {"type": "unknown"}
@@ -81,20 +82,17 @@ def _normalize_action_payload(action: Any) -> Dict[str, Any]:
     # Ensure selector is JSON-serializable if it's a model
     sel = action_dict.get("selector")
     if hasattr(sel, "model_dump"):
-        try:
+        with contextlib.suppress(Exception):
             action_dict["selector"] = sel.model_dump(mode="json", exclude_none=True)
-        except Exception:
-            pass
 
     # Drop empty attributes if we already have useful fields
-    if action_dict.get("attributes") == {}:
-        if len(action_dict) > 2 or (len(action_dict) == 2 and "type" in action_dict):
-            action_dict.pop("attributes", None)
+    if action_dict.get("attributes") == {} and (len(action_dict) > 2 or (len(action_dict) == 2 and "type" in action_dict)):
+        action_dict.pop("attributes", None)
 
     return action_dict
 
 
-def _is_thin_action(action_dict: Dict[str, Any]) -> bool:
+def _is_thin_action(action_dict: dict[str, Any]) -> bool:
     """Detect actions that only contain type/empty attributes (no reproducible details)."""
     if not isinstance(action_dict, dict):
         return True
@@ -109,11 +107,11 @@ def _is_thin_action(action_dict: Dict[str, Any]) -> bool:
     return True
 
 
-def _normalize_llm_usage(raw: Any) -> Optional[List[Dict[str, Any]]]:
+def _normalize_llm_usage(raw: Any) -> list[dict[str, Any]] | None:
     """Normalize llm_usage to list of {provider, model, tokens, cost} dicts."""
     if not isinstance(raw, list):
         return None
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -144,7 +142,7 @@ def _normalize_llm_usage(raw: Any) -> Optional[List[Dict[str, Any]]]:
     return out or None
 
 
-def _extract_season_round(validator_round_id: Optional[str]) -> tuple[Optional[int], Optional[int]]:
+def _extract_season_round(validator_round_id: str | None) -> tuple[int | None, int | None]:
     if not validator_round_id:
         return None, None
     match = re.match(r"validator_round_(\d+)_(\d+)_", str(validator_round_id))
@@ -156,21 +154,21 @@ def _extract_season_round(validator_round_id: Optional[str]) -> tuple[Optional[i
         return None, None
 
 
-def _summarize_llm_usage(llm_usage: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+def _summarize_llm_usage(llm_usage: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     if not llm_usage:
         return None
     total_tokens = 0
     total_cost = 0.0
-    providers: Dict[str, float] = {}
+    providers: dict[str, float] = {}
     for item in llm_usage:
         if not isinstance(item, dict):
             continue
         tokens = item.get("tokens")
         cost = item.get("cost")
         provider = item.get("provider")
-        if isinstance(tokens, (int, float)):
+        if isinstance(tokens, int | float):
             total_tokens += int(tokens)
-        if isinstance(cost, (int, float)):
+        if isinstance(cost, int | float):
             total_cost += float(cost)
             if isinstance(provider, str) and provider:
                 providers[provider] = providers.get(provider, 0.0) + float(cost)
@@ -181,14 +179,14 @@ def _summarize_llm_usage(llm_usage: Optional[List[Dict[str, Any]]]) -> Optional[
     }
 
 
-def _normalize_llm_calls(raw: Any) -> List[Dict[str, Any]]:
+def _normalize_llm_calls(raw: Any) -> list[dict[str, Any]]:
     """
     Normalize llm calls to list of:
     {input, output, provider, model, tokens, cost}
     """
     if not isinstance(raw, list):
         return []
-    calls: List[Dict[str, Any]] = []
+    calls: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -205,11 +203,11 @@ def _normalize_llm_calls(raw: Any) -> List[Dict[str, Any]]:
     return calls
 
 
-def _build_execution_steps(execution_history: Any) -> List[Dict[str, Any]]:
+def _build_execution_steps(execution_history: Any) -> list[dict[str, Any]]:
     if not isinstance(execution_history, list):
         return []
-    steps: List[Dict[str, Any]] = []
-    history_accum: List[Dict[str, Any]] = []
+    steps: list[dict[str, Any]] = []
+    history_accum: list[dict[str, Any]] = []
     for idx, item in enumerate(execution_history):
         if not isinstance(item, dict):
             continue
@@ -223,7 +221,7 @@ def _build_execution_steps(execution_history: Any) -> List[Dict[str, Any]]:
             timestamp = snapshot_post.get("timestamp") or snapshot_post.get("time")
         exec_time = item.get("execution_time")
         exec_time_ms = None
-        if isinstance(exec_time, (int, float)):
+        if isinstance(exec_time, int | float):
             exec_time_ms = int(exec_time * 1000)
         llm_calls_raw = item.get("llm_calls")
         if llm_calls_raw is None:
@@ -269,14 +267,14 @@ def _build_execution_steps(execution_history: Any) -> List[Dict[str, Any]]:
     return steps
 
 
-def _attach_llm_calls_to_steps(steps: List[Dict[str, Any]], llm_calls: list[dict]) -> None:
+def _attach_llm_calls_to_steps(steps: list[dict[str, Any]], llm_calls: list[dict]) -> None:
     if not steps or not llm_calls:
         return
 
-    def _parse_ts(ts: Any) -> Optional[datetime]:
-        if isinstance(ts, (int, float)):
+    def _parse_ts(ts: Any) -> datetime | None:
+        if isinstance(ts, int | float):
             try:
-                return datetime.fromtimestamp(float(ts), tz=timezone.utc)
+                return datetime.fromtimestamp(float(ts), tz=UTC)
             except Exception:
                 return None
         if isinstance(ts, str):
@@ -309,14 +307,14 @@ def _sanitize_for_json(obj: Any, *, _depth: int = 0) -> Any:
     """Best-effort conversion to JSON-serializable data."""
     if _depth > 8:
         return str(obj)
-    if obj is None or isinstance(obj, (str, int, float, bool)):
+    if obj is None or isinstance(obj, str | int | float | bool):
         return obj
     if isinstance(obj, bytes):
         return obj.decode("utf-8", errors="replace")
-    if isinstance(obj, (list, tuple, set)):
+    if isinstance(obj, list | tuple | set):
         return [_sanitize_for_json(item, _depth=_depth + 1) for item in obj]
     if isinstance(obj, dict):
-        cleaned: Dict[str, Any] = {}
+        cleaned: dict[str, Any] = {}
         for key, value in obj.items():
             if callable(value):
                 continue
@@ -345,15 +343,15 @@ def _build_task_log_payload(
     eval_score: float,
     reward: float,
     exec_time: float,
-    evaluation_meta: Dict[str, Any],
-    validator_round_id: Optional[str],
-    validator_uid: Optional[int],
-) -> Dict[str, Any]:
+    evaluation_meta: dict[str, Any],
+    validator_round_id: str | None,
+    validator_uid: int | None,
+) -> dict[str, Any]:
     execution_history = evaluation_meta.get("execution_history", []) if isinstance(evaluation_meta, dict) else []
     steps = _build_execution_steps(execution_history)
     steps_success = len([s for s in steps if s.get("success")])
     season, round_in_season = _extract_season_round(validator_round_id)
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(UTC).isoformat()
     task_prompt = getattr(task_payload, "prompt", None)
     task_url = getattr(task_payload, "url", None)
     use_case = getattr(task_payload, "use_case", None)
@@ -455,12 +453,12 @@ def prepare_evaluation_payload(
     miner_uid: int,
     solution,
     eval_score: float,
-    evaluation_meta: Dict[str, Any],
-    test_results_data: List[Any],
+    evaluation_meta: dict[str, Any],
+    test_results_data: list[Any],
     exec_time: float,
     reward: float,
-    zero_reason: Optional[str] = None,
-) -> Dict[str, Any]:
+    zero_reason: str | None = None,
+) -> dict[str, Any]:
     """
     Prepare a single evaluation payload for submission to IWAP.
 
@@ -490,18 +488,15 @@ def prepare_evaluation_payload(
         miner_hotkey = None
 
     # Handle None solution (miner didn't respond)
-    if solution is None:
-        raw_actions = []
-    else:
-        raw_actions = getattr(solution, "actions", []) or []
+    raw_actions = [] if solution is None else getattr(solution, "actions", []) or []
 
-    actions_payload: List[Dict[str, Any]] = []
+    actions_payload: list[dict[str, Any]] = []
     for action in raw_actions:
         actions_payload.append(_normalize_action_payload(action))
 
     # If actions are empty/thin, try to derive them from execution_history.
     history = evaluation_meta.get("execution_history") if isinstance(evaluation_meta, dict) else None
-    derived_actions: List[Dict[str, Any]] = []
+    derived_actions: list[dict[str, Any]] = []
     if isinstance(history, list):
         for item in history:
             if isinstance(item, dict):
@@ -570,7 +565,7 @@ def prepare_evaluation_payload(
     )
 
     # Build llm_usage for backend (evaluation_llm_usage table)
-    llm_usage: Optional[List[Dict[str, Any]]] = _normalize_llm_usage(evaluation_meta.get("llm_usage"))
+    llm_usage: list[dict[str, Any]] | None = _normalize_llm_usage(evaluation_meta.get("llm_usage"))
 
     evaluation_result_payload = iwa_models.EvaluationResultIWAP(
         evaluation_id=evaluation_id,
@@ -611,7 +606,7 @@ async def submit_task_results(
     test_results_list,
     evaluation_results,
     execution_times,
-    rewards: List[float],
+    rewards: list[float],
 ) -> None:
     if not ctx.current_round_id or not ctx.current_round_tasks:
         return
@@ -686,12 +681,9 @@ async def submit_task_results(
             miner_hotkey = None
 
         # Handle None solution (miner didn't respond)
-        if solution is None:
-            raw_actions = []
-        else:
-            raw_actions = getattr(solution, "actions", []) or []
+        raw_actions = [] if solution is None else getattr(solution, "actions", []) or []
 
-        actions_payload: List[Dict[str, Any]] = []
+        actions_payload: list[dict[str, Any]] = []
         log_iwap_phase(
             "Phase 4",
             f"🔧 Converting {len(raw_actions)} actions for miner_uid={miner_uid}",
@@ -782,7 +774,7 @@ async def submit_task_results(
         )
 
         # Build llm_usage for backend (same as prepare_evaluation_payload)
-        llm_usage_inner: Optional[List[Dict[str, Any]]] = _normalize_llm_usage(evaluation_meta.get("llm_usage"))
+        llm_usage_inner: list[dict[str, Any]] | None = _normalize_llm_usage(evaluation_meta.get("llm_usage"))
         zero_reason_inner = evaluation_meta.get("zero_reason") if isinstance(evaluation_meta, dict) else None
         llm_usage_summary = _summarize_llm_usage(llm_usage_inner)
         task_total_cost = 0.0
@@ -825,9 +817,9 @@ async def submit_task_results(
         add_evaluation_message = f"Calling add_evaluation for miner_uid={miner_uid}, task_id={iwap_task_id}, agent_run_id={agent_run.agent_run_id}"
         log_iwap_phase("Phase 4", add_evaluation_message)
 
-        gif_to_upload: Optional[bytes] | Optional[str] = None
+        gif_to_upload: bytes | None | str | None = None
         if gif_payload:
-            payload_size = len(gif_payload) if isinstance(gif_payload, (bytes, str)) else 0
+            payload_size = len(gif_payload) if isinstance(gif_payload, bytes | str) else 0
             log_gif_event(
                 f"GIF detected: {payload_size} bytes - will upload after creating evaluation",
                 level="debug",
@@ -899,9 +891,9 @@ async def submit_task_results(
                                 f"Upload completed without URL for evaluation_id={evaluation_id}",
                                 level="warning",
                             )
-                    except Exception as e:  # noqa: BLE001
+                    except Exception as e:
                         log_gif_event(
-                            f"Failed to upload for evaluation_id={evaluation_id}: {str(e)}",
+                            f"Failed to upload for evaluation_id={evaluation_id}: {e!s}",
                             level="error",
                             exc_info=True,
                         )
@@ -942,7 +934,7 @@ async def submit_task_results(
                                 }
                             )
                             ctx._s3_task_log_urls = task_logs_payload
-                    except Exception as log_exc:  # noqa: BLE001
+                    except Exception as log_exc:
                         log_iwap_phase(
                             "Phase 4",
                             f"Task log upload failed for task_id={iwap_task_id} miner_uid={miner_uid}: {log_exc}",

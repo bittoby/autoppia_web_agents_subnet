@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-
 import bittensor as bt
 
 from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager

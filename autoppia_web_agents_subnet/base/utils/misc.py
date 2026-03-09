@@ -16,11 +16,12 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-import time
 import threading
-from math import floor
-from typing import Callable, Any
+import time
+from collections.abc import Callable
 from functools import lru_cache, update_wrapper
+from math import floor
+from typing import Any
 
 
 # LRU Cache with TTL
@@ -118,6 +119,6 @@ def _get_current_block_serialized(self) -> int:
     lock = getattr(self, "_subtensor_block_read_lock", None)
     if lock is None:
         lock = threading.RLock()
-        setattr(self, "_subtensor_block_read_lock", lock)
+        self._subtensor_block_read_lock = lock
     with lock:
         return self.subtensor.get_current_block()

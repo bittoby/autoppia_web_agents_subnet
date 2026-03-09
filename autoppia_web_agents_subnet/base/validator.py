@@ -18,20 +18,22 @@
 # DEALINGS IN THE SOFTWARE.
 
 
-import copy
-import numpy as np
-import asyncio
 import argparse
+import asyncio
+import copy
 import threading
-import bittensor as bt
-from typing import List, Sequence, Union
+from collections.abc import Sequence
 from traceback import print_exception
+
+import bittensor as bt
+import numpy as np
+
 from autoppia_web_agents_subnet.base.neuron import BaseNeuron
-from autoppia_web_agents_subnet.base.utils.weight_utils import (
-    process_weights_for_netuid,
-    convert_weights_and_uids_for_emit,
-)
 from autoppia_web_agents_subnet.base.utils.config import add_validator_args
+from autoppia_web_agents_subnet.base.utils.weight_utils import (
+    convert_weights_and_uids_for_emit,
+    process_weights_for_netuid,
+)
 
 
 class BaseValidatorNeuron(BaseNeuron):
@@ -75,7 +77,7 @@ class BaseValidatorNeuron(BaseNeuron):
         # Instantiate runners
         self.should_exit: bool = False
         self.is_running: bool = False
-        self.thread: Union[threading.Thread, None] = None
+        self.thread: threading.Thread | None = None
         self.lock = asyncio.Lock()
 
     def serve_axon(self):
@@ -156,7 +158,7 @@ class BaseValidatorNeuron(BaseNeuron):
         except Exception as err:
             self.should_exit = True
             self.is_running = False
-            bt.logging.error(f"❌ FATAL ERROR in validator main loop: {str(err)}")
+            bt.logging.error(f"❌ FATAL ERROR in validator main loop: {err!s}")
             bt.logging.debug(str(print_exception(type(err), err, err.__traceback__)))
             bt.logging.error("🔄 Exiting to allow PM2 restart...")
             raise  # Re-raise to let PM2 restart the validator
@@ -340,7 +342,7 @@ class BaseValidatorNeuron(BaseNeuron):
         # If so, we need to add new hotkeys and moving averages.
         if len(self.hotkeys) < len(self.metagraph.hotkeys):
             # Update the size of the moving average scores.
-            new_moving_average = np.zeros((self.metagraph.n))
+            new_moving_average = np.zeros(self.metagraph.n)
             min_len = min(len(self.hotkeys), len(self.scores))
             new_moving_average[:min_len] = self.scores[:min_len]
             self.scores = new_moving_average
@@ -348,7 +350,7 @@ class BaseValidatorNeuron(BaseNeuron):
         # Update the hotkeys.
         self.hotkeys = copy.deepcopy(self.metagraph.hotkeys)
 
-    def update_scores(self, rewards: np.ndarray, uids: List[int]):
+    def update_scores(self, rewards: np.ndarray, uids: list[int]):
         """Performs exponential moving average on the scores based on the rewards received from the miners."""
 
         # Check if rewards contains NaN values.
@@ -361,10 +363,7 @@ class BaseValidatorNeuron(BaseNeuron):
         rewards = np.asarray(rewards)
 
         # Check if `uids` is already a numpy array and copy it to avoid the warning.
-        if isinstance(uids, np.ndarray):
-            uids_array = uids.copy()
-        else:
-            uids_array = np.array(uids)
+        uids_array = uids.copy() if isinstance(uids, np.ndarray) else np.array(uids)
 
         # Handle edge case: If either rewards or uids_array is empty.
         if rewards.size == 0 or uids_array.size == 0:

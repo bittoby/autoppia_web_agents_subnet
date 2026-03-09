@@ -8,10 +8,11 @@ Provides mocks for:
 - SandboxManager (without Docker)
 """
 
-import pytest
-from unittest.mock import Mock, AsyncMock
-from typing import Dict, Any, Optional, List
 import json
+from typing import Any
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 
 @pytest.fixture
@@ -22,21 +23,21 @@ def mock_ipfs_client() -> Mock:
     Simulates IPFS operations without requiring an actual IPFS node.
     Stores data in memory and returns deterministic CIDs.
     """
-    storage: Dict[str, bytes] = {}
+    storage: dict[str, bytes] = {}
     cid_counter = [0]  # Use list for mutability in closure
 
-    def add_json(data: Dict[str, Any]) -> str:
+    def add_json(data: dict[str, Any]) -> str:
         """Add JSON data and return a mock CID."""
         cid_counter[0] += 1
         cid = f"Qm{'0' * 44}{cid_counter[0]:04d}"
         storage[cid] = json.dumps(data).encode()
         return cid
 
-    def cat(cid: str) -> Optional[bytes]:
+    def cat(cid: str) -> bytes | None:
         """Retrieve data by CID."""
         return storage.get(cid)
 
-    def get_json(cid: str) -> Optional[Dict[str, Any]]:
+    def get_json(cid: str) -> dict[str, Any] | None:
         """Retrieve and parse JSON data by CID."""
         data = storage.get(cid)
         if data:
@@ -60,16 +61,16 @@ def mock_async_subtensor() -> Mock:
     Simulates blockchain operations without requiring actual network connection.
     Stores commitments in memory.
     """
-    commitments: Dict[int, List[Dict[str, Any]]] = {}  # uid -> list of commits
+    commitments: dict[int, list[dict[str, Any]]] = {}  # uid -> list of commits
 
-    async def commit(uid: int, data: Dict[str, Any]) -> bool:
+    async def commit(uid: int, data: dict[str, Any]) -> bool:
         """Store a commitment for a validator."""
         if uid not in commitments:
             commitments[uid] = []
         commitments[uid].append(data)
         return True
 
-    async def get_commitments(netuid: int, block: Optional[int] = None) -> Dict[int, Any]:
+    async def get_commitments(netuid: int, block: int | None = None) -> dict[int, Any]:
         """Retrieve all commitments for a subnet."""
         # Return the latest commitment for each validator
         result = {}
@@ -78,9 +79,9 @@ def mock_async_subtensor() -> Mock:
                 result[uid] = commits[-1]
         return result
 
-    async def get_commitment(uid: int, netuid: int, block: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    async def get_commitment(uid: int, netuid: int, block: int | None = None) -> dict[str, Any] | None:
         """Retrieve commitment for a specific validator."""
-        if uid in commitments and commitments[uid]:
+        if commitments.get(uid):
             return commitments[uid][-1]
         return None
 
@@ -101,7 +102,7 @@ def mock_iwap_client() -> Mock:
     Simulates the platform API without requiring actual service.
     """
 
-    async def evaluate_agent(agent_url: str, task: Dict[str, Any]) -> Dict[str, Any]:
+    async def evaluate_agent(agent_url: str, task: dict[str, Any]) -> dict[str, Any]:
         """Mock agent evaluation."""
         return {
             "score": 0.8,
@@ -130,7 +131,7 @@ def mock_sandbox_manager() -> Mock:
     Simulates agent deployment and cleanup without requiring Docker.
     Useful for testing evaluation logic without container overhead.
     """
-    deployed_agents: Dict[int, Dict[str, Any]] = {}
+    deployed_agents: dict[int, dict[str, Any]] = {}
 
     async def deploy_agent(uid: int, github_url: str, agent_name: str) -> bool:
         """Mock agent deployment."""
@@ -152,7 +153,7 @@ def mock_sandbox_manager() -> Mock:
         """Mock cleanup all agents."""
         deployed_agents.clear()
 
-    def get_base_url(uid: int) -> Optional[str]:
+    def get_base_url(uid: int) -> str | None:
         """Get base URL for deployed agent."""
         if uid in deployed_agents:
             return deployed_agents[uid]["base_url"]

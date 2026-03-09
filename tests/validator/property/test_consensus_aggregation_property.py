@@ -5,7 +5,7 @@ Uses Hypothesis to test score aggregation properties.
 """
 
 import pytest
-from hypothesis import given, strategies as st, assume
+from hypothesis import assume, given, strategies as st
 
 
 @pytest.mark.property
@@ -28,7 +28,7 @@ class TestConsensusAggregationProperties:
         assume(len(scores) == len(stakes))
 
         # Calculate stake-weighted average
-        weighted_sum = sum(score * stake for score, stake in zip(scores, stakes))
+        weighted_sum = sum(score * stake for score, stake in zip(scores, stakes, strict=False))
         total_stake = sum(stakes)
 
         aggregated = weighted_sum / total_stake
@@ -53,7 +53,7 @@ class TestConsensusAggregationProperties:
         assume(sum(stakes) > 0)
 
         # Calculate in original order
-        weighted_sum_1 = sum(score * stake for score, stake in zip(scores, stakes))
+        weighted_sum_1 = sum(score * stake for score, stake in zip(scores, stakes, strict=False))
         total_stake_1 = sum(stakes)
         result_1 = weighted_sum_1 / total_stake_1
 
@@ -61,7 +61,7 @@ class TestConsensusAggregationProperties:
         scores_rev = list(reversed(scores))
         stakes_rev = list(reversed(stakes))
 
-        weighted_sum_2 = sum(score * stake for score, stake in zip(scores_rev, stakes_rev))
+        weighted_sum_2 = sum(score * stake for score, stake in zip(scores_rev, stakes_rev, strict=False))
         total_stake_2 = sum(stakes_rev)
         result_2 = weighted_sum_2 / total_stake_2
 
@@ -116,7 +116,7 @@ class TestConsensusAggregationProperties:
         stakes = [stake_high, stake_low]
 
         # Calculate weighted average
-        weighted_sum = sum(score * stake for score, stake in zip(scores, stakes))
+        weighted_sum = sum(score * stake for score, stake in zip(scores, stakes, strict=False))
         total_stake = sum(stakes)
         aggregated = weighted_sum / total_stake
 
@@ -140,7 +140,7 @@ class TestConsensusAggregationProperties:
         stakes = [1.0] * len(scores)
 
         # Calculate weighted average
-        weighted_sum = sum(score * stake for score, stake in zip(scores, stakes))
+        weighted_sum = sum(score * stake for score, stake in zip(scores, stakes, strict=False))
         total_stake = sum(stakes)
         aggregated = weighted_sum / total_stake
 

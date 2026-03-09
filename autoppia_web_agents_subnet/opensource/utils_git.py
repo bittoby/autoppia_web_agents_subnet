@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -7,20 +8,19 @@ import shutil
 import subprocess
 import tempfile
 import time
-from typing import Optional, Tuple
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 
 
 def resolve_remote_ref_commit(
     normalized_url: str,
-    ref: Optional[str],
+    ref: str | None,
     *,
     timeout: float = 8.0,
-) -> Optional[str]:
+) -> str | None:
     """
     Resolve the commit hash for a given repo/ref without cloning.
 
@@ -84,11 +84,11 @@ def _normalize_github_ssh(url: str) -> str:
 
 
 def normalize_and_validate_github_url(
-    raw_url: Optional[str],
+    raw_url: str | None,
     *,
-    miner_uid: Optional[int] = None,
+    miner_uid: int | None = None,
     require_ref: bool = False,
-) -> Tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """
     Normalize and validate a GitHub URL, extracting an optional ref (branch/commit).
     Returns (normalized_url, ref) or (None, None) if invalid.
@@ -206,7 +206,7 @@ def normalize_and_validate_github_url(
     return None, None
 
 
-def _github_repo_preflight_size_bytes(normalized_url: str, *, timeout: float = 5.0) -> Optional[int]:
+def _github_repo_preflight_size_bytes(normalized_url: str, *, timeout: float = 5.0) -> int | None:
     """
     Best-effort GitHub REST API preflight to estimate repo size before cloning.
 
@@ -334,19 +334,13 @@ def clone_repo(
 
             time.sleep(0.2)
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             proc.kill()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             proc.wait(timeout=2)
-        except Exception:
-            pass
         # Best-effort cleanup.
-        try:
+        with contextlib.suppress(Exception):
             shutil.rmtree(dst_dir, ignore_errors=True)
-        except Exception:
-            pass
         raise
 
     if ref:
@@ -361,14 +355,12 @@ def clone_repo(
 
     # Ensure cloned repo is readable by non-root users inside the sandbox
     # container (temp directories are typically created with 0700).
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(dst_dir, 0o755)
-    except OSError:
-        pass
 
     total_bytes = 0
     total_files = 0
-    for root, dirs, files in os.walk(dst_dir):
+    for root, _dirs, files in os.walk(dst_dir):
         for fname in files:
             total_files += 1
             try:
@@ -384,8 +376,6 @@ def clone_repo(
 
 def temp_workdir(prefix: str = "autoppia-sandbox-") -> str:
     path = tempfile.mkdtemp(prefix=prefix)
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(path, 0o755)
-    except OSError:
-        pass
     return path

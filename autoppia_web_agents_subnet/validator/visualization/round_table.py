@@ -1,14 +1,14 @@
 # autoppia_web_agents_subnet/validator/visualization/round_table.py
 from __future__ import annotations
 
-from typing import Dict, Any, Optional, List, Set
+from typing import Any
 
 import numpy as np
 
 try:
-    from rich.table import Table
-    from rich.console import Console
     from rich import box
+    from rich.console import Console
+    from rich.table import Table
 
     _RICH = True
 except Exception:
@@ -23,13 +23,13 @@ def _mean_safe(values: list[float]) -> float:
 
 def render_round_summary_table(
     round_manager,
-    final_rewards: Dict[int, float],  # WTA rewards mapping (1.0 to winner)
+    final_rewards: dict[int, float],  # WTA rewards mapping (1.0 to winner)
     metagraph: Any,
     *,
     to_console: bool = True,
-    agg_scores: Optional[Dict[int, float]] = None,  # aggregated final scores per UID
-    consensus_meta: Optional[Dict[str, Any]] = None,  # {validators: [...], scores_by_validator: {hk:{uid:score}}}
-    active_uids: Optional[Set[int]] = None,
+    agg_scores: dict[int, float] | None = None,  # aggregated final scores per UID
+    consensus_meta: dict[str, Any] | None = None,  # {validators: [...], scores_by_validator: {hk:{uid:score}}}
+    active_uids: set[int] | None = None,
 ) -> str:
     """
     Render a concise per-miner summary at end of round:
@@ -45,13 +45,13 @@ def render_round_summary_table(
         round_rewards_keys = list(getattr(round_manager, "round_rewards", {}).keys())
         uids_to_show = set(round_rewards_keys + list(final_rewards.keys()))
 
-    validators_info: List[Dict[str, Any]] = []
-    scores_by_validator: Dict[str, Dict[int, float]] = {}
+    validators_info: list[dict[str, Any]] = []
+    scores_by_validator: dict[str, dict[int, float]] = {}
     if consensus_meta:
         validators_info = list(consensus_meta.get("validators") or [])
         scores_by_validator = dict(consensus_meta.get("scores_by_validator") or {})
 
-    validators_hk_order: List[str] = [v.get("hotkey") for v in validators_info if isinstance(v, dict) and v.get("hotkey")]
+    validators_hk_order: list[str] = [v.get("hotkey") for v in validators_info if isinstance(v, dict) and v.get("hotkey")]
 
     for uid in sorted(uids_to_show):
         hotkey = metagraph.hotkeys[uid] if uid < len(metagraph.hotkeys) else "<unknown>"

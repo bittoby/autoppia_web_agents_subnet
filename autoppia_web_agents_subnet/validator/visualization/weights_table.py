@@ -6,9 +6,9 @@ from typing import Any
 import numpy as np
 
 try:
-    from rich.table import Table
-    from rich.console import Console
     from rich import box
+    from rich.console import Console
+    from rich.table import Table
 
     _RICH = True
 except Exception:
@@ -23,7 +23,7 @@ def render_weights_table(processed_weight_uids: np.ndarray, processed_weights: n
     rows: list[dict[str, Any]] = []
 
     # Build rows for miners with non-zero weights
-    for uid, weight in zip(processed_weight_uids, processed_weights):
+    for uid, weight in zip(processed_weight_uids, processed_weights, strict=False):
         if weight > 0:  # Only show non-zero weights
             hotkey = metagraph.hotkeys[uid] if uid < len(metagraph.hotkeys) else "<unknown>"
             coldkey = metagraph.coldkeys[uid] if uid < len(metagraph.coldkeys) else "<unknown>"

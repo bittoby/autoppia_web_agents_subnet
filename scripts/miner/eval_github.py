@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import time
@@ -89,15 +90,13 @@ def _load_env_file(path: str) -> None:
 def _load_tasks_from_json(path: Path, limit: int) -> list[Any]:
     from autoppia_iwa.src.data_generation.tasks.classes import Task
     from autoppia_iwa.src.demo_webs.config import demo_web_projects
+
     from autoppia_web_agents_subnet.validator.models import TaskWithProject
 
     with path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
 
-    if isinstance(payload, dict):
-        rows = payload.get("tasks")
-    else:
-        rows = payload
+    rows = payload.get("tasks") if isinstance(payload, dict) else payload
     if not isinstance(rows, list):
         raise RuntimeError(f"Invalid tasks file format (expected list in 'tasks'): {path}")
 
@@ -302,15 +301,11 @@ async def _run() -> int:
                 manager.cleanup_agent(int(args.uid))
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             manager.cleanup_all_agents()
-        except Exception:
-            pass
         if not args.keep_gateway and gateway_container is not None:
-            try:
+            with contextlib.suppress(Exception):
                 stop_and_remove(gateway_container)
-            except Exception:
-                pass
 
 
 def main() -> int:

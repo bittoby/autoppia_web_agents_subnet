@@ -1,5 +1,6 @@
+from typing import TypeVar
+
 import bittensor as bt
-from typing import List, TypeVar
 from bittensor import Synapse
 
 # Generic synapse type
@@ -13,14 +14,14 @@ async def dendrite_with_retries(
     deserialize: bool,
     timeout: float,
     retries=1,
-) -> List[T | None]:
-    res: List[T | None] = [None] * len(axons)
+) -> list[T | None]:
+    res: list[T | None] = [None] * len(axons)
     idx = list(range(len(axons)))
     axons = axons.copy()
 
     try:
         for attempt in range(retries):
-            responses: List[T] = await dendrite(axons=axons, synapse=synapse, deserialize=deserialize, timeout=timeout)
+            responses: list[T] = await dendrite(axons=axons, synapse=synapse, deserialize=deserialize, timeout=timeout)
 
             new_idx = []
             new_axons = []
@@ -28,7 +29,7 @@ async def dendrite_with_retries(
                 if response.dendrite.status_code is not None and int(response.dendrite.status_code) == 422:
                     if attempt == retries - 1:
                         res[idx[i]] = response
-                        bt.logging.info("Wasn't able to get answers from axon {} after {} attempts".format(axons[i], retries))
+                        bt.logging.info(f"Wasn't able to get answers from axon {axons[i]} after {retries} attempts")
                     else:
                         new_idx.append(idx[i])
                         new_axons.append(axons[i])
@@ -36,7 +37,7 @@ async def dendrite_with_retries(
                     res[idx[i]] = response
 
             if len(new_idx):
-                bt.logging.info("Found {} synapses with broken pipe, retrying them".format(len(new_idx)))
+                bt.logging.info(f"Found {len(new_idx)} synapses with broken pipe, retrying them")
             else:
                 break
 

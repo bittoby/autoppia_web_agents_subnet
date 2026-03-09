@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import List, Sequence, Dict, Any, Optional
+from typing import Any
 
 import numpy as np
 
 # Rich is optional; if not installed, we gracefully fallback to plain text
 try:
-    from rich.table import Table
-    from rich.console import Console
     from rich import box
+    from rich.console import Console
+    from rich.table import Table
 
     _RICH = True
 except Exception:
@@ -40,7 +41,7 @@ class ForwardStats:
 
     # internal accumulators
     _started_at: float = field(default=0.0, init=False)
-    _forward_id: Optional[int] = field(default=None, init=False)
+    _forward_id: int | None = field(default=None, init=False)
     _n: int = field(init=False)
     _tasks_sent: int = field(default=0, init=False)
 
@@ -93,7 +94,7 @@ class ForwardStats:
         self._counts += 1
         self._tasks_sent += 1
 
-    def finish(self) -> Dict[str, Any]:
+    def finish(self) -> dict[str, Any]:
         """
         Compute per-miner averages for this forward and return a summary dict:
         {
@@ -129,7 +130,7 @@ class ForwardStats:
         avg_time = self._sum_exec_times / counts_safe
 
         order = np.argsort(-avg_reward)  # desc by avg reward
-        miners: List[Dict[str, Any]] = []
+        miners: list[dict[str, Any]] = []
         for idx in order.tolist():
             miners.append(
                 {
@@ -152,7 +153,7 @@ class ForwardStats:
         }
 
     # ---- rendering ----
-    def render_table(self, summary: Dict[str, Any], *, to_console: bool = True) -> str:
+    def render_table(self, summary: dict[str, Any], *, to_console: bool = True) -> str:
         """
         Render an ordered miner table (by avg_reward desc).
         Returns a string; optionally also prints to console if rich is available.

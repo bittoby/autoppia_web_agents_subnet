@@ -5,7 +5,8 @@ Uses Hypothesis to test round boundary consistency across many inputs.
 """
 
 import pytest
-from hypothesis import given, strategies as st, assume
+from hypothesis import assume, given, strategies as st
+
 from autoppia_web_agents_subnet.validator.round_manager import RoundManager
 
 

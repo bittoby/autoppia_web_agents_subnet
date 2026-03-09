@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from typing import Any, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 try:
     import requests  # type: ignore
@@ -36,7 +37,7 @@ def ipfs_add_bytes(
     data: bytes,
     *,
     filename: str = "commit.json",
-    api_url: Optional[str] = None,
+    api_url: str | None = None,
     pin: bool = True,
 ) -> str:
     api = api_url or _api_base()
@@ -67,10 +68,10 @@ def ipfs_add_json(
     obj: Any,
     *,
     filename: str = "commit.json",
-    api_url: Optional[str] = None,
+    api_url: str | None = None,
     pin: bool = True,
     sort_keys: bool = True,
-) -> Tuple[str, str, int]:
+) -> tuple[str, str, int]:
     text = minidumps(obj, sort_keys=sort_keys)
     b = text.encode("utf-8")
     cid = ipfs_add_bytes(b, filename=filename, api_url=api_url, pin=pin)
@@ -80,11 +81,11 @@ def ipfs_add_json(
 def ipfs_cat(
     cid: str,
     *,
-    api_url: Optional[str] = None,
-    gateways: Optional[Sequence[str]] = None,
+    api_url: str | None = None,
+    gateways: Sequence[str] | None = None,
     timeout: float = 20.0,
 ) -> bytes:
-    last_err: Optional[Exception] = None
+    last_err: Exception | None = None
     api = api_url or _api_base()
 
     # Try HTTP API first
@@ -114,10 +115,10 @@ def ipfs_cat(
 def ipfs_get_json(
     cid: str,
     *,
-    api_url: Optional[str] = None,
-    gateways: Optional[Sequence[str]] = None,
-    expected_sha256_hex: Optional[str] = None,
-) -> Tuple[Any, bytes, str]:
+    api_url: str | None = None,
+    gateways: Sequence[str] | None = None,
+    expected_sha256_hex: str | None = None,
+) -> tuple[Any, bytes, str]:
     raw = ipfs_cat(cid, api_url=api_url, gateways=gateways)
     obj = json.loads(raw.decode("utf-8"))
     norm = minidumps(obj).encode("utf-8")
@@ -131,10 +132,10 @@ async def add_json_async(
     obj: Any,
     *,
     filename: str = "commit.json",
-    api_url: Optional[str] = None,
+    api_url: str | None = None,
     pin: bool = True,
     sort_keys: bool = True,
-) -> Tuple[str, str, int]:
+) -> tuple[str, str, int]:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: ipfs_add_json(obj, filename=filename, api_url=api_url, pin=pin, sort_keys=sort_keys))
 
@@ -142,9 +143,9 @@ async def add_json_async(
 async def get_json_async(
     cid: str,
     *,
-    api_url: Optional[str] = None,
-    gateways: Optional[Sequence[str]] = None,
-    expected_sha256_hex: Optional[str] = None,
-) -> Tuple[Any, bytes, str]:
+    api_url: str | None = None,
+    gateways: Sequence[str] | None = None,
+    expected_sha256_hex: str | None = None,
+) -> tuple[Any, bytes, str]:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: ipfs_get_json(cid, api_url=api_url, gateways=gateways, expected_sha256_hex=expected_sha256_hex))

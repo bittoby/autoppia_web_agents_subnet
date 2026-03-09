@@ -1,5 +1,5 @@
-import re
 import random
+import re
 
 
 def version_to_tuple(version):

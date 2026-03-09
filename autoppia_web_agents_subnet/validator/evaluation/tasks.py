@@ -6,18 +6,16 @@ Handles both task generation and task data processing.
 from __future__ import annotations
 
 import time
-from typing import List
 
 import bittensor as bt
-
-from autoppia_web_agents_subnet.validator.models import TaskWithProject
+from autoppia_iwa.src.data_generation.tasks.classes import Task, TaskGenerationConfig
+from autoppia_iwa.src.data_generation.tasks.pipeline import TaskGenerationPipeline
+from autoppia_iwa.src.demo_webs.classes import WebProject
 
 # IWA (module-wrapped) imports
 from autoppia_iwa.src.demo_webs.config import demo_web_projects
-from autoppia_iwa.src.demo_webs.classes import WebProject
-from autoppia_iwa.src.data_generation.tasks.classes import Task, TaskGenerationConfig
-from autoppia_iwa.src.data_generation.tasks.pipeline import TaskGenerationPipeline
 
+from autoppia_web_agents_subnet.validator.models import TaskWithProject
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TASK GENERATION - Generate tasks for agents
@@ -36,7 +34,7 @@ async def _generate_task_for_project(project: WebProject, use_case_name: str) ->
     """
     config = TaskGenerationConfig(
         prompts_per_use_case=1,
-        # Limit generation to a single use case to avoid N×LLM calls per project.
+        # Limit generation to a single use case to avoid N*LLM calls per project.
         use_cases=[use_case_name],
         # Dynamic tasks include ?seed=... in the URL (required for deterministic variants)
         dynamic=True,
@@ -50,7 +48,7 @@ async def _generate_task_for_project(project: WebProject, use_case_name: str) ->
     return tasks[0]
 
 
-async def generate_tasks(num_tasks: int) -> List[TaskWithProject]:
+async def generate_tasks(num_tasks: int) -> list[TaskWithProject]:
     """
     Generate tasks across demo web projects with balanced coverage.
 
@@ -66,7 +64,7 @@ async def generate_tasks(num_tasks: int) -> List[TaskWithProject]:
         List of TaskWithProject objects
     """
     start_time = time.time()
-    all_tasks: List[TaskWithProject] = []
+    all_tasks: list[TaskWithProject] = []
 
     num_projects = len(demo_web_projects)
     if num_projects == 0:

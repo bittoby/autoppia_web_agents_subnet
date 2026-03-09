@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 import asyncio
-import re
-import math
-import time
+import contextlib
 import json
+import math
+import re
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-import httpx
 import bittensor as bt
+import httpx
 
+from autoppia_web_agents_subnet.platform import client as iwa_main, models as iwa_models
 from autoppia_web_agents_subnet.validator import config as validator_config
-from autoppia_web_agents_subnet.platform import models as iwa_models
-from autoppia_web_agents_subnet.platform import client as iwa_main
+
 from .iwa_core import (
-    log_iwap_phase,
     build_validator_identity,
     build_validator_snapshot,
+    log_iwap_phase,
 )
 
 
@@ -78,7 +79,7 @@ def _eligible_uids_from_downloaded_payloads(raw_payloads: object) -> set[int]:
             rewards = payload.get("scores")
         if not isinstance(rewards, dict):
             continue
-        for uid_raw in rewards.keys():
+        for uid_raw in rewards:
             try:
                 eligible.add(int(uid_raw))
             except Exception:
@@ -144,10 +145,7 @@ def _extract_error_detail(exc: httpx.HTTPStatusError) -> str:
         except Exception:
             return ""
 
-    if isinstance(payload, dict):
-        detail = payload.get("detail", payload)
-    else:
-        detail = payload
+    detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
 
     if isinstance(detail, str):
         return detail
@@ -213,7 +211,7 @@ def _get_finish_retry_policy() -> tuple[int, int]:
     return max_retries, retry_interval_sec
 
 
-def _extract_round_numbers_from_round_id(round_id: Optional[str]) -> tuple[Optional[int], Optional[int]]:
+def _extract_round_numbers_from_round_id(round_id: str | None) -> tuple[int | None, int | None]:
     if not isinstance(round_id, str) or not round_id:
         return None, None
 
@@ -227,7 +225,7 @@ def _extract_round_numbers_from_round_id(round_id: Optional[str]) -> tuple[Optio
         return None, None
 
 
-def _load_validator_state_json(ctx) -> Optional[Dict[str, Any]]:
+def _load_validator_state_json(ctx) -> dict[str, Any] | None:
     """Read validator local state.npz and return a JSON-safe payload."""
     try:
         full_path = Path(str(getattr(ctx.config.neuron, "full_path", ".")))
@@ -264,7 +262,7 @@ def _load_validator_state_json(ctx) -> Optional[Dict[str, Any]]:
         return {"error": str(exc)}
 
 
-def _extract_round_summary_v2(*, season_history: Dict[Any, Any], season_number: int, round_number_in_season: int) -> Optional[Dict[str, Any]]:
+def _extract_round_summary_v2(*, season_history: dict[Any, Any], season_number: int, round_number_in_season: int) -> dict[str, Any] | None:
     season_state = season_history.get(int(season_number), {}) if isinstance(season_history, dict) else {}
     if not isinstance(season_state, dict):
         return None
@@ -283,10 +281,10 @@ def _persist_round_summary_file(
     ctx,
     season_number: int,
     round_number: int,
-    post_consensus: Optional[Dict[str, Any]],
-    ipfs_uploaded: Optional[Dict[str, Any]],
-    ipfs_downloaded: Optional[Dict[str, Any]],
-    s3_logs_url: Optional[str],
+    post_consensus: dict[str, Any] | None,
+    ipfs_uploaded: dict[str, Any] | None,
+    ipfs_downloaded: dict[str, Any] | None,
+    s3_logs_url: str | None,
 ) -> None:
     if season_number <= 0 or round_number <= 0:
         return
@@ -317,7 +315,7 @@ def _persist_round_summary_file(
 async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
     # Gate for downstream IWAP writes (start_agent_run/registration). Only set true once
     # round creation + set_tasks completed (or duplicate/idempotent equivalent).
-    setattr(ctx, "_iwap_round_ready", False)
+    ctx._iwap_round_ready = False
 
     if not ctx.current_round_id:
         return
@@ -329,10 +327,7 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
     # and backend returns "round_number mismatch". Always use fresh block for round calculation.
     original_block = current_block
     try:
-        if hasattr(ctx, "get_current_block"):
-            latest_block = ctx.get_current_block(fresh=True)
-        else:
-            latest_block = ctx.subtensor.get_current_block()
+        latest_block = ctx.get_current_block(fresh=True) if hasattr(ctx, "get_current_block") else ctx.subtensor.get_current_block()
         if latest_block is not None:
             current_block = int(latest_block)
             if current_block != original_block:
@@ -348,10 +343,10 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
     # get_current_boundaries() uses self.start_block (from original block), but we need
     # boundaries consistent with the refreshed current_block for round_number calculation
     boundaries = ctx.round_manager.get_round_boundaries(current_block, log_debug=False)
-    max_epochs = max(1, int(round(validator_config.ROUND_SIZE_EPOCHS))) if validator_config.ROUND_SIZE_EPOCHS else 1
+    max_epochs = max(1, round(validator_config.ROUND_SIZE_EPOCHS)) if validator_config.ROUND_SIZE_EPOCHS else 1
     start_epoch_raw = boundaries["round_start_epoch"]
     start_epoch = math.floor(start_epoch_raw)
-    round_metadata: Dict[str, Any] = {
+    round_metadata: dict[str, Any] = {
         "round_start_epoch_raw": start_epoch_raw,
         "target_epoch": boundaries.get("target_epoch"),
     }
@@ -459,7 +454,7 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
             ctx.current_round_id = vrid
         shadow_mode = bool(resp.get("shadow_mode")) if isinstance(resp, dict) else False
         if shadow_mode:
-            setattr(ctx, "_iwap_shadow_mode", True)
+            ctx._iwap_shadow_mode = True
             log_iwap_phase(
                 "Phase 1",
                 (f"start_round accepted in SHADOW mode for round_id={ctx.current_round_id}; continuing idempotent IWAP writes with non-authoritative close semantics"),
@@ -475,7 +470,7 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
                 level="warning",
                 exc_info=False,
             )
-            setattr(ctx, "_iwap_shadow_mode", True)
+            ctx._iwap_shadow_mode = True
             return
         if _is_duplicate_like_error(exc):
             detail = _extract_error_detail(exc).lower()
@@ -511,7 +506,7 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
                 )
                 ctx._iwap_offline_mode = True
                 return
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log_iwap_phase(
             "Phase 1",
             f"start_round failed for round_id={ctx.current_round_id}: {exc}; continuing without IWAP sync",
@@ -539,14 +534,12 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
 
     # Build IWAP tasks from season tasks
     # Get season tasks from the validator (they should be available after get_round_tasks was called)
-    if not hasattr(ctx, "current_round_tasks") or not ctx.current_round_tasks:
-        # Try to get tasks from season_manager if available
-        if hasattr(ctx, "season_manager") and hasattr(ctx.season_manager, "season_tasks"):
-            season_tasks = ctx.season_manager.season_tasks
-            if season_tasks:
-                from autoppia_web_agents_subnet.platform.utils.iwa_core import build_iwap_tasks
+    if (not hasattr(ctx, "current_round_tasks") or not ctx.current_round_tasks) and hasattr(ctx, "season_manager") and hasattr(ctx.season_manager, "season_tasks"):
+        season_tasks = ctx.season_manager.season_tasks
+        if season_tasks:
+            from autoppia_web_agents_subnet.platform.utils.iwa_core import build_iwap_tasks
 
-                ctx.current_round_tasks = build_iwap_tasks(validator_round_id=ctx.current_round_id, tasks=season_tasks)
+            ctx.current_round_tasks = build_iwap_tasks(validator_round_id=ctx.current_round_id, tasks=season_tasks)
 
     task_count = len(ctx.current_round_tasks)
     set_tasks_message = f"Calling set_tasks with tasks={task_count} for round_id={ctx.current_round_id}"
@@ -587,7 +580,7 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
             f"set_tasks completed for round_id={ctx.current_round_id}",
             level="success",
         )
-    setattr(ctx, "_iwap_round_ready", True)
+    ctx._iwap_round_ready = True
 
     # Note: register_participating_miners_in_iwap is called separately in validator.py
     # after handshake to avoid duplication
@@ -653,10 +646,8 @@ async def register_participating_miners_in_iwap(ctx) -> None:
             continue
 
         miner_hotkey = None
-        try:
+        with contextlib.suppress(Exception):
             miner_hotkey = ctx.metagraph.hotkeys[miner_uid]
-        except Exception:
-            pass
 
         miner_coldkey = None
         try:
@@ -779,8 +770,8 @@ async def register_participating_miners_in_iwap(ctx) -> None:
 async def finish_round_flow(
     ctx,
     *,
-    avg_rewards: Dict[int, float],
-    final_weights: Dict[int, float],
+    avg_rewards: dict[int, float],
+    final_weights: dict[int, float],
     tasks_completed: int,
 ) -> bool:
     if not ctx.current_round_id:
@@ -807,9 +798,9 @@ async def finish_round_flow(
     if round_for_round is None:
         round_for_round = 0
     # Upload full round log (append-only file: all logs from round start; never truncated on error)
-    round_log_file: Optional[str] = None
-    round_log_url: Optional[str] = None
-    round_log_error: Optional[str] = None
+    round_log_file: str | None = None
+    round_log_url: str | None = None
+    round_log_error: str | None = None
     try:
         # Prefer shared periodic uploader when available (keeps single source of truth
         # for throttling and retry behavior). Force upload at finish.
@@ -865,11 +856,11 @@ async def finish_round_flow(
     season_number_for_summary, round_number_for_summary = _extract_round_numbers_from_round_id(ctx.current_round_id)
     if season_number_for_summary is None or round_number_for_summary is None:
         try:
-            season_number_for_summary = int(getattr(ctx, "season_manager").season_number)
+            season_number_for_summary = int(ctx.season_manager.season_number)
         except Exception:
             season_number_for_summary = 0
         try:
-            round_number_for_summary = int(getattr(ctx, "round_manager").round_number)
+            round_number_for_summary = int(ctx.round_manager.round_number)
         except Exception:
             round_number_for_summary = 0
 
@@ -886,7 +877,7 @@ async def finish_round_flow(
         else:
             local_avg_eval_scores[uid] = 0.0
 
-    local_avg_costs: Dict[int, float] = {}
+    local_avg_costs: dict[int, float] = {}
     for uid, acc in (getattr(ctx, "agent_run_accumulators", {}) or {}).items():
         if not isinstance(acc, dict):
             continue
@@ -901,14 +892,14 @@ async def finish_round_flow(
         local_avg_costs[int(uid)] = float(total_cost / total_tasks) if total_tasks > 0 else 0.0
 
     round_times = getattr(ctx.round_manager, "round_times", {}) or {}
-    participant_uids = sorted({int(uid) for uid in (getattr(ctx, "active_miner_uids", []) or [])} | {int(uid) for uid in (getattr(ctx, "current_agent_runs", {}) or {}).keys()})
+    participant_uids = sorted({int(uid) for uid in (getattr(ctx, "active_miner_uids", []) or [])} | {int(uid) for uid in (getattr(ctx, "current_agent_runs", {}) or {})})
     local_reward_candidates: list[tuple[int, float, float]] = []
     local_evaluation_miners = []
-    local_stats_by_miner: Dict[int, Dict[str, Any]] = {}
+    local_stats_by_miner: dict[int, dict[str, Any]] = {}
 
     for miner_uid in participant_uids:
-        best_run = getattr(ctx, "_best_run_payload_for_miner")(miner_uid)
-        current_run = getattr(ctx, "_current_round_run_payload")(miner_uid)
+        best_run = ctx._best_run_payload_for_miner(miner_uid)
+        current_run = ctx._current_round_run_payload(miner_uid)
         effective_run = best_run or current_run
         if effective_run is None:
             effective_run = {
@@ -937,8 +928,8 @@ async def finish_round_flow(
     rank_map_local = {uid: rank for rank, (uid, _score, _time) in enumerate(sorted_miners_local, start=1)}
 
     for miner_uid in participant_uids:
-        best_run = getattr(ctx, "_best_run_payload_for_miner")(miner_uid)
-        current_run = getattr(ctx, "_current_round_run_payload")(miner_uid)
+        best_run = ctx._best_run_payload_for_miner(miner_uid)
+        current_run = ctx._current_round_run_payload(miner_uid)
         effective_run = best_run or current_run or {}
         rank_value = rank_map_local.get(miner_uid)
 
@@ -999,9 +990,9 @@ async def finish_round_flow(
             miner_payload["zero_reason"] = current_run.get("zero_reason")
         local_evaluation_miners.append(miner_payload)
 
-    agent_run_summaries: List[iwa_models.FinishRoundAgentRunIWAP] = []
+    agent_run_summaries: list[iwa_models.FinishRoundAgentRunIWAP] = []
     for miner_uid, agent_run in (ctx.current_agent_runs or {}).items():
-        current_run = getattr(ctx, "_current_round_run_payload")(miner_uid)
+        current_run = ctx._current_round_run_payload(miner_uid)
         if current_run is None:
             continue
         miner_name = None
@@ -1061,7 +1052,7 @@ async def finish_round_flow(
 
     # Build emission info (will be added to round_metadata)
     # alpha_price will be calculated by backend
-    from autoppia_web_agents_subnet.validator.config import BURN_UID, BURN_AMOUNT_PERCENTAGE
+    from autoppia_web_agents_subnet.validator.config import BURN_AMOUNT_PERCENTAGE, BURN_UID
 
     burn_percentage = float(BURN_AMOUNT_PERCENTAGE)
 
@@ -1081,8 +1072,8 @@ async def finish_round_flow(
 
     tasks_total_for_round = 0
     tasks_completed_for_round = 0
-    for miner_uid in (ctx.current_agent_runs or {}).keys():
-        current_run = getattr(ctx, "_current_round_run_payload")(miner_uid)
+    for miner_uid in ctx.current_agent_runs or {}:
+        current_run = ctx._current_round_run_payload(miner_uid)
         if not isinstance(current_run, dict):
             continue
         tasks_total_for_round += int(current_run.get("tasks_received", 0) or 0)
@@ -1169,7 +1160,7 @@ async def finish_round_flow(
     if not consensus_rewards:
         # Fallback 1: if aggregation returned nothing, keep observability by reusing
         # the exact reward map this validator published to IPFS.
-        published_rewards: Dict[int, float] = {}
+        published_rewards: dict[int, float] = {}
         try:
             published_payload = getattr(ctx, "_ipfs_uploaded_payload", None)
             published_rewards_raw = None
@@ -1197,11 +1188,8 @@ async def finish_round_flow(
         except Exception:
             published_rewards = {}
 
-        if published_rewards:
-            consensus_rewards = published_rewards
-        else:
-            # Fallback 2: use local evaluated rewards (may be empty if no valid miners).
-            consensus_rewards = avg_rewards
+        # Fallback 2: use local evaluated rewards if no published (may be empty if no valid miners).
+        consensus_rewards = published_rewards or avg_rewards
 
     stats_by_miner = {}
     current_stats_by_miner = {}
@@ -1300,10 +1288,8 @@ async def finish_round_flow(
             max_rank = max(rank_map_consensus.values()) if rank_map_consensus else 0
             # Obtener miner_hotkey para burn_uid
             burn_miner_hotkey = None
-            try:
+            with contextlib.suppress(Exception):
                 burn_miner_hotkey = ctx.metagraph.hotkeys[burn_uid] if burn_uid < len(ctx.metagraph.hotkeys) else None
-            except Exception:
-                pass
 
             post_consensus_miners.append(
                 {
@@ -1422,7 +1408,7 @@ async def finish_round_flow(
             validator_round_id=round_id,
             finish_request=finish_request,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         if isinstance(exc, httpx.HTTPStatusError) and _is_main_authority_or_grace_error(exc):
             max_retries, retry_interval_sec = _get_finish_retry_policy()
             log_iwap_phase(
@@ -1447,7 +1433,7 @@ async def finish_round_flow(
                         validator_round_id=round_id,
                         finish_request=finish_request,
                     )
-                except Exception as retry_exc:  # noqa: BLE001
+                except Exception as retry_exc:
                     last_exc = retry_exc
                     if isinstance(retry_exc, httpx.HTTPStatusError) and _is_main_authority_or_grace_error(retry_exc):
                         continue
@@ -1506,7 +1492,7 @@ async def finish_round_flow(
                 f"finish_round fallback succeeded for round_id={round_id}",
                 level="success",
             )
-        except Exception as fallback_exc:  # noqa: BLE001
+        except Exception as fallback_exc:
             log_iwap_phase(
                 "Phase 5",
                 f"finish_round fallback also failed for round_id={round_id}: {type(fallback_exc).__name__}: {fallback_exc}",

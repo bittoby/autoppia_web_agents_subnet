@@ -2,19 +2,17 @@ from __future__ import annotations
 
 import base64
 from binascii import Error as BinasciiError
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import bittensor as bt
 
-from autoppia_web_agents_subnet.platform import client as iwa_main
-from autoppia_web_agents_subnet.platform import models as iwa_models
+from autoppia_web_agents_subnet.platform import client as iwa_main, models as iwa_models
 from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 from autoppia_web_agents_subnet.validator.config import (
     VALIDATOR_IMAGE,
     VALIDATOR_NAME,
 )
 from autoppia_web_agents_subnet.validator.models import TaskWithProject
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -94,10 +92,7 @@ def log_ipfs_event(
         exc_info: Whether to include exception traceback
     """
     # Format as "IPFS | [ACTION] message"
-    if message.startswith("["):
-        prefix = f"IPFS | {message}"
-    else:
-        prefix = f"IPFS | [{action}] {message}"
+    prefix = f"IPFS | {message}" if message.startswith("[") else f"IPFS | [{action}] {message}"
 
     if level == "success":
         # Use green color for IPFS success messages
@@ -150,7 +145,7 @@ def log_gif_event(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def build_iwap_auth_headers(wallet, message: str) -> Dict[str, str]:
+def build_iwap_auth_headers(wallet, message: str) -> dict[str, str]:
     hotkey = getattr(getattr(wallet, "hotkey", None), "ss58_address", None)
     if not hotkey:
         raise RuntimeError("Validator hotkey is unavailable for IWAP authentication")
@@ -172,7 +167,7 @@ def build_iwap_auth_headers(wallet, message: str) -> Dict[str, str]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def metagraph_numeric(metagraph, attribute: str, uid: int) -> Optional[float]:
+def metagraph_numeric(metagraph, attribute: str, uid: int) -> float | None:
     collection = getattr(metagraph, attribute, None)
     if collection is None:
         bt.logging.debug(f"Metagraph attribute '{attribute}' is unavailable when reading uid={uid}")
@@ -182,12 +177,12 @@ def metagraph_numeric(metagraph, attribute: str, uid: int) -> Optional[float]:
         if hasattr(value, "item"):
             return float(value.item())
         return float(value)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         bt.logging.debug(f"Failed to coerce metagraph attribute '{attribute}' for uid={uid}: {exc}")
         return None
 
 
-def normalized_stake_tao(metagraph, uid: int) -> Optional[float]:
+def normalized_stake_tao(metagraph, uid: int) -> float | None:
     raw_stake = metagraph_numeric(metagraph, "S", uid)
     if raw_stake is None:
         bt.logging.warning(f"Stake not available in metagraph for uid={uid}")
@@ -197,7 +192,7 @@ def normalized_stake_tao(metagraph, uid: int) -> Optional[float]:
         rao_per_tao = float(getattr(getattr(bt, "utils", None), "RAO_PER_TAO", 1_000_000_000))
         if not rao_per_tao:
             raise ValueError("Invalid RAO_PER_TAO constant")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         bt.logging.warning(f"Unable to read RAO_PER_TAO constant ({exc}); defaulting to 1e9")
         rao_per_tao = 1_000_000_000
 
@@ -208,7 +203,7 @@ def normalized_stake_tao(metagraph, uid: int) -> Optional[float]:
     return normalized
 
 
-def validator_vtrust(metagraph, uid: int) -> Optional[float]:
+def validator_vtrust(metagraph, uid: int) -> float | None:
     attribute_order = [
         "validator_trust",
         "validator_performance",
@@ -244,19 +239,19 @@ def build_validator_identity(validator) -> iwa_models.ValidatorIdentityIWAP:
 
 def build_validator_snapshot(validator, validator_round_id: str) -> iwa_models.ValidatorSnapshotIWAP:
     from autoppia_web_agents_subnet.validator.config import (
-        ROUND_SIZE_EPOCHS,
-        MINIMUM_START_BLOCK,
-        TASKS_PER_SEASON,
-        STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION,
-        FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION,
-        SKIP_ROUND_IF_STARTED_AFTER_FRACTION,
-        MIN_VALIDATOR_STAKE_FOR_CONSENSUS_TAO,
-        SHOULD_RECORD_GIF,
-        TASK_TIMEOUT_SECONDS,
         EVAL_SCORE_WEIGHT,
-        TIME_WEIGHT,
-        TESTING,
+        FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION,
         IWAP_API_BASE_URL,
+        MIN_VALIDATOR_STAKE_FOR_CONSENSUS_TAO,
+        MINIMUM_START_BLOCK,
+        ROUND_SIZE_EPOCHS,
+        SHOULD_RECORD_GIF,
+        SKIP_ROUND_IF_STARTED_AFTER_FRACTION,
+        STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION,
+        TASK_TIMEOUT_SECONDS,
+        TASKS_PER_SEASON,
+        TESTING,
+        TIME_WEIGHT,
     )
 
     stake = normalized_stake_tao(validator.metagraph, validator.uid)
@@ -273,23 +268,19 @@ def build_validator_snapshot(validator, validator_round_id: str) -> iwa_models.V
 
     round_manager = getattr(validator, "round_manager", None)
     season_manager = getattr(validator, "season_manager", None)
-    runtime_round_size_epochs = (
-        float(getattr(round_manager, "round_size_epochs")) if round_manager is not None and getattr(round_manager, "round_size_epochs", None) is not None else float(ROUND_SIZE_EPOCHS)
-    )
-    runtime_minimum_start_block = (
-        int(getattr(round_manager, "minimum_start_block")) if round_manager is not None and getattr(round_manager, "minimum_start_block", None) is not None else int(MINIMUM_START_BLOCK)
-    )
+    runtime_round_size_epochs = float(round_manager.round_size_epochs) if round_manager is not None and getattr(round_manager, "round_size_epochs", None) is not None else float(ROUND_SIZE_EPOCHS)
+    runtime_minimum_start_block = int(round_manager.minimum_start_block) if round_manager is not None and getattr(round_manager, "minimum_start_block", None) is not None else int(MINIMUM_START_BLOCK)
     runtime_season_size_epochs = (
-        float(getattr(season_manager, "season_size_epochs"))
+        float(season_manager.season_size_epochs)
         if season_manager is not None and getattr(season_manager, "season_size_epochs", None) is not None
-        else float(getattr(round_manager, "season_size_epochs"))
+        else float(round_manager.season_size_epochs)
         if round_manager is not None and getattr(round_manager, "season_size_epochs", None) is not None
         else None
     )
-    runtime_blocks_per_epoch = int(getattr(round_manager, "BLOCKS_PER_EPOCH")) if round_manager is not None and getattr(round_manager, "BLOCKS_PER_EPOCH", None) is not None else 360
+    runtime_blocks_per_epoch = int(round_manager.BLOCKS_PER_EPOCH) if round_manager is not None and getattr(round_manager, "BLOCKS_PER_EPOCH", None) is not None else 360
 
     # Build validator configuration dictionary
-    validator_config: Dict[str, Any] = {
+    validator_config: dict[str, Any] = {
         "round": {
             "round_size_epochs": runtime_round_size_epochs,
             "season_size_epochs": runtime_season_size_epochs,
@@ -335,8 +326,8 @@ def build_validator_snapshot(validator, validator_round_id: str) -> iwa_models.V
     )
 
 
-def build_iwap_tasks(*, validator_round_id: str, tasks: List[TaskWithProject]) -> Dict[str, iwa_models.TaskIWAP]:
-    task_map: Dict[str, iwa_models.TaskIWAP] = {}
+def build_iwap_tasks(*, validator_round_id: str, tasks: list[TaskWithProject]) -> dict[str, iwa_models.TaskIWAP]:
+    task_map: dict[str, iwa_models.TaskIWAP] = {}
     for index, task_item in enumerate(tasks):
         task = task_item.task
         project = task_item.project
@@ -352,16 +343,16 @@ def build_iwap_tasks(*, validator_round_id: str, tasks: List[TaskWithProject]) -
             except Exception:
                 specifications = dict(getattr(task, "specifications", {}) or {})
 
-        tests: List[Dict[str, Any]] = []
+        tests: list[dict[str, Any]] = []
         for test in getattr(task, "tests", []) or []:
             if hasattr(test, "model_dump"):
                 tests.append(test.model_dump(mode="json", exclude_none=True))
             else:
                 tests.append(dict(test))
 
-        use_case_payload: Dict[str, Any] = {}
+        use_case_payload: dict[str, Any] = {}
         if getattr(task, "use_case", None) is not None:
-            use_case = getattr(task, "use_case")
+            use_case = task.use_case
             if hasattr(use_case, "serialize"):
                 try:
                     use_case_payload = use_case.serialize()
@@ -391,12 +382,12 @@ def build_iwap_tasks(*, validator_round_id: str, tasks: List[TaskWithProject]) -
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def extract_gif_bytes(payload: Optional[object]) -> Optional[bytes]:
+def extract_gif_bytes(payload: object | None) -> bytes | None:
     if payload is None:
         bt.logging.debug("🛰️ IWAP GIF extraction: no payload provided")
         return None
 
-    if isinstance(payload, (bytes, bytearray)):
+    if isinstance(payload, bytes | bytearray):
         raw_source = bytes(payload)
     elif isinstance(payload, str):
         text = payload.strip()
@@ -413,7 +404,7 @@ def extract_gif_bytes(payload: Optional[object]) -> Optional[bytes]:
 
     try:
         decoded = base64.b64decode(raw_source, validate=True)
-    except (BinasciiError, ValueError) as exc:  # noqa: BLE001
+    except (BinasciiError, ValueError) as exc:
         bt.logging.warning(f"🛰️ IWAP GIF extraction failed: base64 decode error {exc}")
         return None
 

@@ -4,37 +4,36 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
+
 import bittensor as bt
 
+from autoppia_web_agents_subnet.platform import client as iwa_main, models as iwa_models
+from autoppia_web_agents_subnet.platform.utils.iwa_core import (
+    build_iwap_auth_headers,
+    build_iwap_tasks as _utils_build_iwap_tasks,
+    build_validator_identity as _utils_build_validator_identity,
+    build_validator_snapshot as _utils_build_validator_snapshot,
+    extract_gif_bytes as _utils_extract_gif_bytes,
+    log_iwap_phase,
+    metagraph_numeric as _metrics_metagraph_numeric,
+    normalized_stake_tao as _metrics_normalized_stake_tao,
+    validator_vtrust as _metrics_validator_vtrust,
+)
+from autoppia_web_agents_subnet.platform.utils.round_flow import (
+    finish_round_flow as _utils_finish_round_flow,
+    register_participating_miners_in_iwap as _utils_register_participating_miners_in_iwap,
+    start_round_flow as _utils_start_round_flow,
+)
+from autoppia_web_agents_subnet.platform.utils.task_flow import (
+    submit_task_results as _utils_submit_task_results,
+)
 from autoppia_web_agents_subnet.validator import config as validator_config
 from autoppia_web_agents_subnet.validator.config import (
     IWAP_API_BASE_URL,
     IWAP_VALIDATOR_AUTH_MESSAGE,
 )
 from autoppia_web_agents_subnet.validator.models import TaskWithProject
-from autoppia_web_agents_subnet.platform import models as iwa_models
-from autoppia_web_agents_subnet.platform import client as iwa_main
-
-from autoppia_web_agents_subnet.platform.utils.iwa_core import (
-    log_iwap_phase,
-    build_iwap_auth_headers,
-    metagraph_numeric as _metrics_metagraph_numeric,
-    normalized_stake_tao as _metrics_normalized_stake_tao,
-    validator_vtrust as _metrics_validator_vtrust,
-    build_validator_identity as _utils_build_validator_identity,
-    build_validator_snapshot as _utils_build_validator_snapshot,
-    build_iwap_tasks as _utils_build_iwap_tasks,
-    extract_gif_bytes as _utils_extract_gif_bytes,
-)
-from autoppia_web_agents_subnet.platform.utils.round_flow import (
-    start_round_flow as _utils_start_round_flow,
-    finish_round_flow as _utils_finish_round_flow,
-    register_participating_miners_in_iwap as _utils_register_participating_miners_in_iwap,
-)
-from autoppia_web_agents_subnet.platform.utils.task_flow import (
-    submit_task_results as _utils_submit_task_results,
-)
 
 
 class ValidatorPlatformMixin:
@@ -57,26 +56,26 @@ class ValidatorPlatformMixin:
             backup_dir=backup_dir,
             auth_provider=self._build_iwap_auth_headers,
         )
-        self.current_round_id: Optional[str] = None
-        self.current_round_tasks: Dict[str, iwa_models.TaskIWAP] = {}
-        self.current_agent_runs: Dict[int, iwa_models.AgentRunIWAP] = {}
-        self.current_miner_snapshots: Dict[int, iwa_models.MinerSnapshotIWAP] = {}
+        self.current_round_id: str | None = None
+        self.current_round_tasks: dict[str, iwa_models.TaskIWAP] = {}
+        self.current_agent_runs: dict[int, iwa_models.AgentRunIWAP] = {}
+        self.current_miner_snapshots: dict[int, iwa_models.MinerSnapshotIWAP] = {}
         self._iwap_shadow_mode = False
-        self.round_handshake_payloads: Dict[int, Any] = {}
-        self.eligibility_status_by_uid: Dict[int, str] = {}
+        self.round_handshake_payloads: dict[int, Any] = {}
+        self.eligibility_status_by_uid: dict[int, str] = {}
         self.round_start_timestamp: float = 0.0
-        self.agent_run_accumulators: Dict[int, Dict[str, float]] = {}
+        self.agent_run_accumulators: dict[int, dict[str, float]] = {}
         # (repo, commit) already evaluated per miner -> persisted best-run candidate data.
-        self._evaluated_commits_by_miner: Dict[int, Dict[str, Dict[str, Any]]] = {}  # uid -> "repo|commit" -> {agent_run_id, ...stats}
+        self._evaluated_commits_by_miner: dict[int, dict[str, dict[str, Any]]] = {}  # uid -> "repo|commit" -> {agent_run_id, ...stats}
         # Track completed (miner_uid, task_id) to avoid duplicates
-        self._completed_pairs: Set[Tuple[int, str]] = set()
+        self._completed_pairs: set[tuple[int, str]] = set()
         # Round-log periodic upload state (best effort, no hard dependency).
         self._round_log_last_upload_ts: float = 0.0
         self._round_log_last_uploaded_size: int = -1
-        self._round_log_last_uploaded_url: Optional[str] = None
-        self._round_log_last_upload_round_id: Optional[str] = None
+        self._round_log_last_uploaded_url: str | None = None
+        self._round_log_last_upload_round_id: str | None = None
         # Phase flags for IWAP steps (p1=start_round, p2=set_tasks)
-        self._phases: Dict[str, Any] = {"p1_done": False, "p2_done": False}
+        self._phases: dict[str, Any] = {"p1_done": False, "p2_done": False}
 
     def _log_iwap_phase(self, phase: str, message: str, *, level: str = "info", exc_info: bool = False) -> None:
         # Delegate to logging utility (keeps test compatibility with monkeypatching this method)
@@ -114,7 +113,7 @@ class ValidatorPlatformMixin:
 
         return iwa_main.generate_validator_round_id(season_number=season_number, round_number_in_season=round_number_in_season)
 
-    def _build_iwap_auth_headers(self) -> Dict[str, str]:
+    def _build_iwap_auth_headers(self) -> dict[str, str]:
         hotkey = getattr(self.wallet.hotkey, "ss58_address", None)
         if not hotkey:
             raise RuntimeError("Validator hotkey is unavailable for IWAP authentication")
@@ -133,13 +132,13 @@ class ValidatorPlatformMixin:
     def _build_validator_identity(self) -> iwa_models.ValidatorIdentityIWAP:
         return _utils_build_validator_identity(self)
 
-    def _metagraph_numeric(self, attribute: str, uid: int) -> Optional[float]:
+    def _metagraph_numeric(self, attribute: str, uid: int) -> float | None:
         return _metrics_metagraph_numeric(self.metagraph, attribute, uid)
 
-    def _normalized_stake_tao(self, uid: int) -> Optional[float]:
+    def _normalized_stake_tao(self, uid: int) -> float | None:
         return _metrics_normalized_stake_tao(self.metagraph, uid)
 
-    def _validator_vtrust(self, uid: int) -> Optional[float]:
+    def _validator_vtrust(self, uid: int) -> float | None:
         return _metrics_validator_vtrust(self.metagraph, uid)
 
     def _build_validator_snapshot(self, validator_round_id: str) -> iwa_models.ValidatorSnapshotIWAP:
@@ -149,15 +148,15 @@ class ValidatorPlatformMixin:
         self,
         *,
         validator_round_id: str,
-        tasks: List[TaskWithProject],
-    ) -> Dict[str, iwa_models.TaskIWAP]:
+        tasks: list[TaskWithProject],
+    ) -> dict[str, iwa_models.TaskIWAP]:
         return _utils_build_iwap_tasks(validator_round_id=validator_round_id, tasks=tasks)
 
     async def _iwap_start_round(self, *, current_block: int, n_tasks: int) -> None:
         await _utils_start_round_flow(self, current_block=current_block, n_tasks=n_tasks)
 
     @staticmethod
-    def _extract_round_numbers_from_round_id(round_id: Optional[str]) -> Tuple[Optional[int], Optional[int]]:
+    def _extract_round_numbers_from_round_id(round_id: str | None) -> tuple[int | None, int | None]:
         if not isinstance(round_id, str) or not round_id:
             return None, None
         pattern = re.match(r"^validator_round_(\d+)_(\d+)_.*$", round_id)
@@ -173,8 +172,8 @@ class ValidatorPlatformMixin:
         *,
         reason: str,
         force: bool = False,
-        min_interval_seconds: Optional[float] = None,
-    ) -> Optional[str]:
+        min_interval_seconds: float | None = None,
+    ) -> str | None:
         """
         Best-effort upload of the current round log file to IWAP/S3.
         Safe to call frequently; throttled by interval and no-change checks.
@@ -297,7 +296,7 @@ class ValidatorPlatformMixin:
         test_results_list,
         evaluation_results,
         execution_times,
-        rewards: List[float],
+        rewards: list[float],
     ) -> None:
         await _utils_submit_task_results(
             self,
@@ -311,14 +310,14 @@ class ValidatorPlatformMixin:
         )
 
     @staticmethod
-    def _extract_gif_bytes(payload: Optional[object]) -> Optional[bytes]:
+    def _extract_gif_bytes(payload: object | None) -> bytes | None:
         return _utils_extract_gif_bytes(payload)
 
     async def _finish_iwap_round(
         self,
         *,
-        avg_rewards: Dict[int, float],
-        final_weights: Dict[int, float],
+        avg_rewards: dict[int, float],
+        final_weights: dict[int, float],
         tasks_completed: int,
     ) -> bool:
         return await _utils_finish_round_flow(
@@ -383,7 +382,7 @@ class ValidatorPlatformMixin:
         self._current_round_number = None
 
     @staticmethod
-    def _round_metrics_payload_from_stats(stats: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def _round_metrics_payload_from_stats(stats: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(stats, dict):
             return None
         try:
@@ -409,7 +408,7 @@ class ValidatorPlatformMixin:
             "round": (int(stats["evaluated_round"]) if stats.get("evaluated_round") is not None else None),
         }
 
-    def _current_round_numbers(self) -> Tuple[Optional[int], Optional[int]]:
+    def _current_round_numbers(self) -> tuple[int | None, int | None]:
         season_number, round_number_in_season = self._extract_round_numbers_from_round_id(getattr(self, "current_round_id", None))
         if season_number is None:
             try:
@@ -423,7 +422,7 @@ class ValidatorPlatformMixin:
                 round_number_in_season = None
         return season_number, round_number_in_season
 
-    def _current_round_run_payload(self, uid: int) -> Optional[Dict[str, Any]]:
+    def _current_round_run_payload(self, uid: int) -> dict[str, Any] | None:
         run = (getattr(self, "current_agent_runs", None) or {}).get(uid)
         if run is None:
             return None
@@ -462,8 +461,8 @@ class ValidatorPlatformMixin:
             "zero_reason": getattr(run, "zero_reason", None),
         }
 
-    def _best_run_payload_for_miner(self, uid: int) -> Optional[Dict[str, Any]]:
-        best_payload: Optional[Dict[str, Any]] = None
+    def _best_run_payload_for_miner(self, uid: int) -> dict[str, Any] | None:
+        best_payload: dict[str, Any] | None = None
         best_key: tuple[float, float, float] | None = None
         commits_by_miner = (getattr(self, "_evaluated_commits_by_miner", None) or {}).get(uid, {})
         if isinstance(commits_by_miner, dict):
@@ -496,7 +495,7 @@ class ValidatorPlatformMixin:
         normalized_repo: str,
         commit_sha: str,
         agent_run_id: str,
-        stats: Optional[Dict[str, Any]] = None,
+        stats: dict[str, Any] | None = None,
     ) -> None:
         """Record that we evaluated (repo, commit) for this miner so we don't re-evaluate on resubmit."""
         if not normalized_repo or not commit_sha or not agent_run_id:
@@ -609,7 +608,7 @@ class ValidatorPlatformMixin:
         if callable(init):
             try:
                 await init()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 bt.logging.warning(f"AsyncSubtensor initialize() failed: {exc}")
 
         self._async_subtensor = st
@@ -643,16 +642,15 @@ class ValidatorPlatformMixin:
                     task_attrs = ["_sending_task", "_receiving_task", "_start_sending", "_ws_send_task"]
                     for task_attr in task_attrs:
                         task = getattr(websocket, task_attr, None)
-                        if task is not None and isinstance(task, asyncio.Task):
-                            if not task.done():
-                                bt.logging.debug(f"Cancelling {task_attr}...")
-                                task.cancel()
-                                try:
-                                    await asyncio.wait_for(task, timeout=1.0)
-                                except (asyncio.CancelledError, asyncio.TimeoutError):
-                                    bt.logging.debug(f"{task_attr} cancelled/timeout")
-                                except Exception as e:
-                                    bt.logging.debug(f"{task_attr} cancel error: {e}")
+                        if task is not None and isinstance(task, asyncio.Task) and not task.done():
+                            bt.logging.debug(f"Cancelling {task_attr}...")
+                            task.cancel()
+                            try:
+                                await asyncio.wait_for(task, timeout=1.0)
+                            except (TimeoutError, asyncio.CancelledError):
+                                bt.logging.debug(f"{task_attr} cancelled/timeout")
+                            except Exception as e:
+                                bt.logging.debug(f"{task_attr} cancel error: {e}")
 
                     # Step 4: Close the websocket
                     try:

@@ -1,8 +1,8 @@
+import importlib
+import os
 import sys
 import types
-import os
 from pathlib import Path
-import importlib
 
 # Set TESTING environment variable before any imports
 os.environ["TESTING"] = "True"
@@ -120,10 +120,10 @@ def pytest_configure(config):
 
     # The validator imports a couple of helper utilities from this module.
     # Provide no-op implementations for tests.
-    def _sanitize_snapshot_html(html: str, uid: str) -> str:  # noqa: ARG001
+    def _sanitize_snapshot_html(html: str, uid: str) -> str:
         return html
 
-    def _replace_credentials_in_action(action, uid: str) -> None:  # noqa: ANN001,ARG001
+    def _replace_credentials_in_action(action, uid: str) -> None:
         # In production this replaces placeholder tokens with per-uid credentials.
         # Tests don't need this behavior.
         return None
@@ -199,7 +199,7 @@ def pytest_configure(config):
                 snapshot=types.SimpleNamespace(html="", url="https://example.com"),
             )
 
-        async def step(self, action):  # noqa: ARG002
+        async def step(self, action):
             # Any step moves score to 1.0 and marks success.
             self._step_called = True
             return types.SimpleNamespace(
@@ -243,7 +243,7 @@ def pytest_configure(config):
     sys.modules["autoppia_iwa.src.bootstrap"] = bootstrap_module
 
 
-import pytest  # noqa: E402
+import pytest
 
 
 # Validator fixtures - imported after pytest_configure sets up stubs
@@ -284,6 +284,7 @@ def round_manager(mock_validator_config):
 def season_manager(mock_validator_config):
     """Create a SeasonManager instance with test configuration."""
     from unittest.mock import AsyncMock, Mock
+
     from autoppia_web_agents_subnet.validator.season_manager import SeasonManager
 
     manager = SeasonManager()
@@ -303,9 +304,10 @@ def season_manager(mock_validator_config):
 @pytest.fixture
 def dummy_validator(mock_validator_config):
     """Create a mock validator with all necessary attributes and mixins."""
-    from unittest.mock import Mock, AsyncMock
-    from autoppia_web_agents_subnet.validator.round_manager import RoundManager
     from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from autoppia_web_agents_subnet.validator.round_manager import RoundManager
 
     validator = Mock()
 
@@ -406,8 +408,9 @@ def dummy_validator(mock_validator_config):
 @pytest.fixture
 def validator_with_agents(dummy_validator):
     """Create a validator with pre-populated agent information."""
-    from autoppia_web_agents_subnet.validator.models import AgentInfo
     import queue
+
+    from autoppia_web_agents_subnet.validator.models import AgentInfo
 
     # Replace mock queue with real queue
     dummy_validator.agents_queue = queue.Queue()
@@ -470,8 +473,9 @@ def _bind_round_start_mixin(validator):
 @pytest.fixture
 def season_tasks():
     """Create mock season tasks for testing."""
-    from autoppia_web_agents_subnet.validator.models import TaskWithProject
     from unittest.mock import Mock
+
+    from autoppia_web_agents_subnet.validator.models import TaskWithProject
 
     # Create 5 mock tasks (to match test expectations)
     tasks = []
@@ -507,7 +511,7 @@ def mock_metagraph():
 @pytest.fixture
 def mock_ipfs_client():
     """Create a mock IPFS client for testing."""
-    from unittest.mock import Mock, AsyncMock
+    from unittest.mock import AsyncMock, Mock
 
     # Storage for uploaded data
     storage = {}
@@ -533,7 +537,7 @@ def mock_ipfs_client():
 @pytest.fixture
 def mock_async_subtensor():
     """Create a mock async subtensor for testing."""
-    from unittest.mock import Mock, AsyncMock
+    from unittest.mock import AsyncMock, Mock
 
     subtensor = Mock()
     subtensor.commitments = {}

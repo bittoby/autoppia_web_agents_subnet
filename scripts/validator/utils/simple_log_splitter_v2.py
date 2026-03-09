@@ -6,8 +6,8 @@ Simple log splitter for validator rounds - reads directly from PM2 log file.
 import argparse
 import re
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Pattern to detect round start
 ROUND_START_PATTERN = re.compile(r"🚦\s+Starting\s+Round:\s*(\d+)", re.IGNORECASE)
@@ -44,7 +44,7 @@ def process_line(line: str):
         # Open new round file
         current_round = new_round
         round_log = ROUNDS_DIR / f"round_{current_round}.log"
-        current_round_file = open(round_log, "a", encoding="utf-8")
+        current_round_file = open(round_log, "a", encoding="utf-8")  # noqa: SIM115
         print(f"[{datetime.now()}] Started logging round {current_round} → {round_log}", flush=True)
 
     # Write to current round file
@@ -61,7 +61,7 @@ def tail_file(filepath: Path):
     print(f"[{datetime.now()}] Watching {filepath}", flush=True)
 
     # Open file and seek to end
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+    with open(filepath, encoding="utf-8", errors="ignore") as f:
         # Remember original inode
         try:
             original_inode = filepath.stat().st_ino
@@ -99,10 +99,7 @@ def main():
     args = parser.parse_args()
 
     # Determine paths
-    if args.log_file:
-        pm2_log = Path(args.log_file)
-    else:
-        pm2_log = Path.home() / ".pm2" / "logs" / "validator-wta-out.log"
+    pm2_log = Path(args.log_file) if args.log_file else Path.home() / ".pm2" / "logs" / "validator-wta-out.log"
 
     if args.output_dir:
         rounds_dir = Path(args.output_dir)

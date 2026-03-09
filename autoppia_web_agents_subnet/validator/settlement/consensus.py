@@ -1,25 +1,26 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import contextlib
 import re
+from typing import Any
 
 import bittensor as bt
 from bittensor import AsyncSubtensor  # type: ignore
 
-from autoppia_web_agents_subnet.validator.config import (
-    CONSENSUS_VERSION,
-    MIN_VALIDATOR_STAKE_FOR_CONSENSUS_TAO,
-    IPFS_API_URL,
-    LAST_WINNER_BONUS_PCT,
-)
+from autoppia_web_agents_subnet.platform.client import compute_season_number
 from autoppia_web_agents_subnet.utils.commitments import (
     read_all_plain_commitments,
     write_plain_commitment_json,
 )
 from autoppia_web_agents_subnet.utils.ipfs_client import add_json_async, get_json_async
-from autoppia_web_agents_subnet.utils.log_colors import ipfs_tag, consensus_tag
+from autoppia_web_agents_subnet.utils.log_colors import consensus_tag, ipfs_tag
+from autoppia_web_agents_subnet.validator.config import (
+    CONSENSUS_VERSION,
+    IPFS_API_URL,
+    LAST_WINNER_BONUS_PCT,
+    MIN_VALIDATOR_STAKE_FOR_CONSENSUS_TAO,
+)
 from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
-from autoppia_web_agents_subnet.platform.client import compute_season_number
 
 
 def _safe_season_number(self, current_block: int) -> int:
@@ -134,8 +135,8 @@ def _payload_log_summary(payload: dict) -> dict:
     return out
 
 
-def _normalize_rewards_map(raw_scores: Dict[Any, Any]) -> Dict[str, float]:
-    normalized: Dict[str, float] = {}
+def _normalize_rewards_map(raw_scores: dict[Any, Any]) -> dict[str, float]:
+    normalized: dict[str, float] = {}
     for uid_raw, score_raw in (raw_scores or {}).items():
         try:
             uid_i = int(uid_raw)
@@ -146,7 +147,7 @@ def _normalize_rewards_map(raw_scores: Dict[Any, Any]) -> Dict[str, float]:
     return normalized
 
 
-def _extract_metric_value(entry: dict, *keys: str) -> Optional[float]:
+def _extract_metric_value(entry: dict, *keys: str) -> float | None:
     for key in keys:
         if key not in entry:
             continue
@@ -157,7 +158,7 @@ def _extract_metric_value(entry: dict, *keys: str) -> Optional[float]:
     return None
 
 
-def _extract_int_metric_value(entry: dict, *keys: str) -> Optional[int]:
+def _extract_int_metric_value(entry: dict, *keys: str) -> int | None:
     for key in keys:
         if key not in entry:
             continue
@@ -172,9 +173,9 @@ def _eligibility_status_is_valid(status: Any) -> bool:
     return str(status or "").strip().lower() in {"handshake_valid", "reused", "evaluated"}
 
 
-def _extract_metrics_from_payload(payload: Dict[str, Any]) -> tuple[Dict[int, float], Dict[int, Dict[str, Any]]]:
-    rewards: Dict[int, float] = {}
-    metrics: Dict[int, Dict[str, Any]] = {}
+def _extract_metrics_from_payload(payload: dict[str, Any]) -> tuple[dict[int, float], dict[int, dict[str, Any]]]:
+    rewards: dict[int, float] = {}
+    metrics: dict[int, dict[str, Any]] = {}
 
     miners = payload.get("miners")
     if isinstance(miners, list):
@@ -255,8 +256,8 @@ def _extract_metrics_from_payload(payload: Dict[str, Any]) -> tuple[Dict[int, fl
     return rewards, metrics
 
 
-def _extract_current_run_metrics_from_payload(payload: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
-    metrics: Dict[int, Dict[str, Any]] = {}
+def _extract_current_run_metrics_from_payload(payload: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    metrics: dict[int, dict[str, Any]] = {}
     miners = payload.get("miners")
     if not isinstance(miners, list):
         return metrics
@@ -281,7 +282,7 @@ def _extract_current_run_metrics_from_payload(payload: Dict[str, Any]) -> Dict[i
     return metrics
 
 
-def _summary_snapshot_from_run(uid: Optional[int], run_payload: Optional[Dict[str, Any]], *, weight: Optional[float] = None) -> Optional[Dict[str, Any]]:
+def _summary_snapshot_from_run(uid: int | None, run_payload: dict[str, Any] | None, *, weight: float | None = None) -> dict[str, Any] | None:
     if uid is None:
         return None
     snapshot = {
@@ -292,22 +293,14 @@ def _summary_snapshot_from_run(uid: Optional[int], run_payload: Optional[Dict[st
         "cost": 0.0,
     }
     if isinstance(run_payload, dict):
-        try:
+        with contextlib.suppress(Exception):
             snapshot["reward"] = float(run_payload.get("reward", 0.0) or 0.0)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             snapshot["score"] = float(run_payload.get("score", 0.0) or 0.0)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             snapshot["time"] = float(run_payload.get("time", 0.0) or 0.0)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             snapshot["cost"] = float(run_payload.get("cost", 0.0) or 0.0)
-        except Exception:
-            pass
     if weight is not None:
         snapshot["weight"] = float(weight)
     return snapshot
@@ -319,7 +312,7 @@ def _build_local_round_summary(
     season_number: int,
     round_number: int,
     miners_payload: list[dict[str, Any]],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     try:
         percentage_to_dethrone = max(float(LAST_WINNER_BONUS_PCT), 0.0)
     except Exception:
@@ -418,8 +411,8 @@ def _build_local_round_summary(
     }
 
 
-def _hotkey_to_uid_map(metagraph) -> Dict[str, int]:
-    mapping: Dict[str, int] = {}
+def _hotkey_to_uid_map(metagraph) -> dict[str, int]:
+    mapping: dict[str, int] = {}
     try:
         for i, ax in enumerate(getattr(metagraph, "axons", []) or []):
             hk = getattr(ax, "hotkey", None)
@@ -439,8 +432,8 @@ async def publish_round_snapshot(
     self,
     *,
     st: AsyncSubtensor,
-    scores: Dict[int, float],
-) -> Optional[str]:
+    scores: dict[int, float],
+) -> str | None:
     """
     Publish round snapshot to IPFS and commit CID on-chain.
 
@@ -460,7 +453,7 @@ async def publish_round_snapshot(
     target_epoch = int(boundaries["round_target_epoch"])
     _ = scores
     miners_payload = []
-    active_uids = sorted({int(uid) for uid in (getattr(self, "active_miner_uids", None) or [])} | {int(uid) for uid in (getattr(self, "current_agent_runs", None) or {}).keys()})
+    active_uids = sorted({int(uid) for uid in (getattr(self, "active_miner_uids", None) or [])} | {int(uid) for uid in (getattr(self, "current_agent_runs", None) or {})})
     for uid in active_uids:
         miner_hotkey = None
         try:
@@ -478,8 +471,8 @@ async def publish_round_snapshot(
                 "uid": int(uid),
                 "hotkey": miner_hotkey,
                 "miner_name": miner_name,
-                "best_run": getattr(self, "_best_run_payload_for_miner")(uid),
-                "current_run": getattr(self, "_current_round_run_payload")(uid),
+                "best_run": self._best_run_payload_for_miner(uid),
+                "current_run": self._current_round_run_payload(uid),
             }
         )
     local_summary = _build_local_round_summary(
@@ -581,7 +574,7 @@ async def aggregate_scores_from_commitments(
     self,
     *,
     st: AsyncSubtensor,
-) -> tuple[Dict[int, float], Dict[str, Any]]:
+) -> tuple[dict[int, float], dict[str, Any]]:
     """
     Read validators' commitments for the current round and compute consensus metrics.
 
@@ -633,10 +626,10 @@ async def aggregate_scores_from_commitments(
     # cada uno se descarga ese CID y se obtiene ese JSON.
     bt.logging.info(f"[CONSENSUS] Filtering commitments for current round: {round_number}")
 
-    weighted_sum: Dict[int, float] = {}
-    weight_total: Dict[int, float] = {}
-    metric_acc: Dict[int, Dict[str, float]] = {}
-    current_metric_acc: Dict[int, Dict[str, float]] = {}
+    weighted_sum: dict[int, float] = {}
+    weight_total: dict[int, float] = {}
+    metric_acc: dict[int, dict[str, float]] = {}
+    current_metric_acc: dict[int, dict[str, float]] = {}
 
     included = 0
     skipped_legacy_consensus_version = 0
@@ -657,8 +650,8 @@ async def aggregate_scores_from_commitments(
     skipped_wrong_validator_version_list: list[tuple[str, str]] = []  # (hk, payload_version)
 
     fetched: list[tuple[str, str, float]] = []
-    scores_by_validator: Dict[str, Dict[int, float]] = {}
-    downloaded_payloads: list[Dict[str, Any]] = []
+    scores_by_validator: dict[str, dict[int, float]] = {}
+    downloaded_payloads: list[dict[str, Any]] = []
 
     for hk, entry in (commits or {}).items():
         if not isinstance(entry, dict):
@@ -727,7 +720,7 @@ async def aggregate_scores_from_commitments(
             bt.logging.info(f"[IPFS] [DOWNLOAD] Validator {hk[:12]}... (UID {validator_uid}) | CID: {cid}")
             bt.logging.info(f"[IPFS] [DOWNLOAD] URL: http://ipfs.metahash73.com:5001/api/v0/cat?arg={cid}")
             bt.logging.info(f"[IPFS] [DOWNLOAD] Payload: {payload_json}")
-            payload_rewards, payload_metrics = _extract_metrics_from_payload(payload)
+            payload_rewards, _payload_metrics = _extract_metrics_from_payload(payload)
             miner_count = len(payload_rewards)
             bt.logging.success(f"[IPFS] [DOWNLOAD] ✅ SUCCESS - Round {payload.get('r')} | {miner_count} miners | Stake: {st_val:.2f}τ")
             bt.logging.info("=" * 80)
@@ -757,7 +750,7 @@ async def aggregate_scores_from_commitments(
             continue
 
         # Record each validator's published per-miner reward map (converted to int uid).
-        per_val_map: Dict[int, float] = {}
+        per_val_map: dict[int, float] = {}
         effective_weight = st_val if st_val > 0.0 else 1.0
         for uid_s, sc in rewards.items():
             try:
@@ -903,15 +896,15 @@ async def aggregate_scores_from_commitments(
             }
         )
 
-    result: Dict[int, float] = {}
+    result: dict[int, float] = {}
     for uid, wsum in weighted_sum.items():
         denom = weight_total.get(uid, 0.0)
         if denom > 0:
             result[uid] = float(wsum / denom)
 
-    stats_by_miner: Dict[int, Dict[str, Any]] = {}
+    stats_by_miner: dict[int, dict[str, Any]] = {}
     for uid, acc in metric_acc.items():
-        stats_entry: Dict[str, Any] = {}
+        stats_entry: dict[str, Any] = {}
         if acc.get("avg_reward_den", 0.0) > 0.0:
             stats_entry["avg_reward"] = float(acc["avg_reward_num"] / acc["avg_reward_den"])
         if acc.get("avg_eval_score_den", 0.0) > 0.0:
@@ -921,9 +914,9 @@ async def aggregate_scores_from_commitments(
         if acc.get("avg_cost_den", 0.0) > 0.0:
             stats_entry["avg_cost"] = float(acc["avg_cost_num"] / acc["avg_cost_den"])
         if acc.get("tasks_sent_den", 0.0) > 0.0:
-            stats_entry["tasks_sent"] = int(round(acc["tasks_sent_num"] / acc["tasks_sent_den"]))
+            stats_entry["tasks_sent"] = round(acc["tasks_sent_num"] / acc["tasks_sent_den"])
         if acc.get("tasks_success_den", 0.0) > 0.0:
-            stats_entry["tasks_success"] = int(round(acc["tasks_success_num"] / acc["tasks_success_den"]))
+            stats_entry["tasks_success"] = round(acc["tasks_success_num"] / acc["tasks_success_den"])
         if acc.get("handshake_ok_den", 0.0) > 0.0:
             ratio = float(acc["handshake_ok_num"] / acc["handshake_ok_den"])
             stats_entry["handshake_ok_ratio"] = ratio
@@ -931,9 +924,9 @@ async def aggregate_scores_from_commitments(
         if stats_entry:
             stats_by_miner[int(uid)] = stats_entry
 
-    current_stats_by_miner: Dict[int, Dict[str, Any]] = {}
+    current_stats_by_miner: dict[int, dict[str, Any]] = {}
     for uid, acc in current_metric_acc.items():
-        stats_entry: Dict[str, Any] = {}
+        stats_entry: dict[str, Any] = {}
         if acc.get("avg_reward_den", 0.0) > 0.0:
             stats_entry["avg_reward"] = float(acc["avg_reward_num"] / acc["avg_reward_den"])
         if acc.get("avg_eval_score_den", 0.0) > 0.0:
@@ -943,9 +936,9 @@ async def aggregate_scores_from_commitments(
         if acc.get("avg_cost_den", 0.0) > 0.0:
             stats_entry["avg_cost"] = float(acc["avg_cost_num"] / acc["avg_cost_den"])
         if acc.get("tasks_sent_den", 0.0) > 0.0:
-            stats_entry["tasks_sent"] = int(round(acc["tasks_sent_num"] / acc["tasks_sent_den"]))
+            stats_entry["tasks_sent"] = round(acc["tasks_sent_num"] / acc["tasks_sent_den"])
         if acc.get("tasks_success_den", 0.0) > 0.0:
-            stats_entry["tasks_success"] = int(round(acc["tasks_success_num"] / acc["tasks_success_den"]))
+            stats_entry["tasks_success"] = round(acc["tasks_success_num"] / acc["tasks_success_den"])
         if stats_entry:
             current_stats_by_miner[int(uid)] = stats_entry
 

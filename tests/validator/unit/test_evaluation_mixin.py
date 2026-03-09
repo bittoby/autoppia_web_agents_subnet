@@ -4,8 +4,10 @@ Unit tests for ValidatorEvaluationMixin.
 Tests evaluation phase, agent deployment, and score calculation.
 """
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+
 from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
 
 

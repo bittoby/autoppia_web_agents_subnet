@@ -4,9 +4,9 @@ Property-based tests for reward distribution.
 Uses Hypothesis to test WTA (Winner Takes All) reward properties.
 """
 
-import pytest
 import numpy as np
-from hypothesis import given, strategies as st, assume
+import pytest
+from hypothesis import assume, given, strategies as st
 
 
 @pytest.mark.property

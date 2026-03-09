@@ -8,7 +8,7 @@ Provides fixtures for:
 """
 
 import pytest
-from typing import List
+
 from autoppia_web_agents_subnet.validator.models import TaskWithProject
 
 
@@ -55,7 +55,7 @@ def task_with_project(mock_task, mock_web_project) -> TaskWithProject:
 
 
 @pytest.fixture
-def season_tasks(mock_web_project) -> List[TaskWithProject]:
+def season_tasks(mock_web_project) -> list[TaskWithProject]:
     """
     Create a collection of tasks for a season.
 

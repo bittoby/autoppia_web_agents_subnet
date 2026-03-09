@@ -5,9 +5,10 @@ Tests agent deployment, health checks, and cleanup.
 Note: Some tests require Docker and are marked with @pytest.mark.requires_docker
 """
 
-import pytest
 import os
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 
 @pytest.mark.unit
@@ -20,49 +21,47 @@ class TestAgentDeployment:
         from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
         from autoppia_web_agents_subnet.validator.config import SANDBOX_AGENT_PORT
 
-        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
-            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
-                with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.check_image", return_value=True):
-                    with patch.object(SandboxManager, "_clone_repo") as mock_clone:
-                        with patch.object(SandboxManager, "_start_container") as mock_start:
-                            with patch.object(SandboxManager, "health_check", return_value=True):
-                                mock_clone.return_value = "/tmp/test"
-                                mock_docker = MagicMock()
-                                mock_client.return_value = mock_docker
+        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client, patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
+            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.check_image", return_value=True):
+                with patch.object(SandboxManager, "_clone_repo") as mock_clone:
+                    with patch.object(SandboxManager, "_start_container") as mock_start:
+                        with patch.object(SandboxManager, "health_check", return_value=True):
+                            mock_clone.return_value = "/tmp/test"
+                            mock_docker = MagicMock()
+                            mock_client.return_value = mock_docker
 
-                                # Mock container
-                                mock_container = Mock()
-                                mock_container.attrs = {"NetworkSettings": {"Ports": {f"{SANDBOX_AGENT_PORT}/tcp": [{"HostIp": "127.0.0.1", "HostPort": "9001"}]}}}
+                            # Mock container
+                            mock_container = Mock()
+                            mock_container.attrs = {"NetworkSettings": {"Ports": {f"{SANDBOX_AGENT_PORT}/tcp": [{"HostIp": "127.0.0.1", "HostPort": "9001"}]}}}
 
-                                # Mock AgentInstance
-                                from autoppia_web_agents_subnet.opensource.sandbox_manager import AgentInstance
+                            # Mock AgentInstance
+                            from autoppia_web_agents_subnet.opensource.sandbox_manager import AgentInstance
 
-                                mock_agent = AgentInstance(uid=1, container=mock_container, temp_dir="/tmp/test", port=SANDBOX_AGENT_PORT)
-                                mock_start.return_value = mock_agent
+                            mock_agent = AgentInstance(uid=1, container=mock_container, temp_dir="/tmp/test", port=SANDBOX_AGENT_PORT)
+                            mock_start.return_value = mock_agent
 
-                                manager = SandboxManager()
-                                agent = manager.deploy_agent(1, "https://github.com/test/agent")
+                            manager = SandboxManager()
+                            agent = manager.deploy_agent(1, "https://github.com/test/agent")
 
-                                assert agent is not None
-                                assert agent.uid == 1
+                            assert agent is not None
+                            assert agent.uid == 1
 
     @pytest.mark.requires_docker
     def test_deployment_handles_clone_timeout(self):
         """Test that deployment handles clone timeout gracefully."""
         from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
 
-        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
-            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
-                with patch.object(SandboxManager, "_clone_repo") as mock_clone:
-                    mock_clone.side_effect = TimeoutError("Clone timeout")
-                    mock_docker = MagicMock()
-                    mock_client.return_value = mock_docker
+        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client, patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
+            with patch.object(SandboxManager, "_clone_repo") as mock_clone:
+                mock_clone.side_effect = TimeoutError("Clone timeout")
+                mock_docker = MagicMock()
+                mock_client.return_value = mock_docker
 
-                    manager = SandboxManager()
-                    agent = manager.deploy_agent(1, "https://github.com/test/agent")
+                manager = SandboxManager()
+                agent = manager.deploy_agent(1, "https://github.com/test/agent")
 
-                    # Should return None on failure
-                    assert agent is None
+                # Should return None on failure
+                assert agent is None
 
     @pytest.mark.requires_docker
     def test_deployment_configures_environment_variables(self):
@@ -70,28 +69,27 @@ class TestAgentDeployment:
         from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
         from autoppia_web_agents_subnet.validator.config import SANDBOX_AGENT_PORT
 
-        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
-            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
-                with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.check_image", return_value=True):
-                    with patch.object(SandboxManager, "_clone_repo") as mock_clone:
-                        mock_clone.return_value = "/tmp/test"
-                        mock_docker = MagicMock()
-                        mock_client.return_value = mock_docker
+        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client, patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
+            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.check_image", return_value=True):
+                with patch.object(SandboxManager, "_clone_repo") as mock_clone:
+                    mock_clone.return_value = "/tmp/test"
+                    mock_docker = MagicMock()
+                    mock_client.return_value = mock_docker
 
-                        mock_container = Mock()
-                        mock_container.attrs = {"NetworkSettings": {}}
-                        mock_docker.containers.run.return_value = mock_container
+                    mock_container = Mock()
+                    mock_container.attrs = {"NetworkSettings": {}}
+                    mock_docker.containers.run.return_value = mock_container
 
-                        manager = SandboxManager()
-                        manager.deploy_agent(1, "https://github.com/test/agent")
+                    manager = SandboxManager()
+                    manager.deploy_agent(1, "https://github.com/test/agent")
 
-                        # Check that environment variables were set
-                        call_kwargs = mock_docker.containers.run.call_args[1]
-                        env = call_kwargs["environment"]
-                        assert "SANDBOX_GATEWAY_URL" in env
-                        assert "OPENAI_BASE_URL" in env
-                        assert "CHUTES_BASE_URL" in env
-                        assert env.get("SANDBOX_AGENT_PORT") == str(SANDBOX_AGENT_PORT)
+                    # Check that environment variables were set
+                    call_kwargs = mock_docker.containers.run.call_args[1]
+                    env = call_kwargs["environment"]
+                    assert "SANDBOX_GATEWAY_URL" in env
+                    assert "OPENAI_BASE_URL" in env
+                    assert "CHUTES_BASE_URL" in env
+                    assert env.get("SANDBOX_AGENT_PORT") == str(SANDBOX_AGENT_PORT)
 
     @pytest.mark.requires_docker
     def test_deployment_exposes_correct_port(self):
@@ -99,24 +97,23 @@ class TestAgentDeployment:
         from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
         from autoppia_web_agents_subnet.validator.config import SANDBOX_AGENT_PORT
 
-        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
-            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
-                with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.check_image", return_value=True):
-                    with patch.object(SandboxManager, "_clone_repo") as mock_clone:
-                        mock_clone.return_value = "/tmp/test"
-                        mock_docker = MagicMock()
-                        mock_client.return_value = mock_docker
+        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client, patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
+            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.check_image", return_value=True):
+                with patch.object(SandboxManager, "_clone_repo") as mock_clone:
+                    mock_clone.return_value = "/tmp/test"
+                    mock_docker = MagicMock()
+                    mock_client.return_value = mock_docker
 
-                        mock_container = Mock()
-                        mock_container.attrs = {"NetworkSettings": {}}
-                        mock_docker.containers.run.return_value = mock_container
+                    mock_container = Mock()
+                    mock_container.attrs = {"NetworkSettings": {}}
+                    mock_docker.containers.run.return_value = mock_container
 
-                        manager = SandboxManager()
-                        manager.deploy_agent(1, "https://github.com/test/agent")
+                    manager = SandboxManager()
+                    manager.deploy_agent(1, "https://github.com/test/agent")
 
-                        # Check that port was exposed
-                        call_kwargs = mock_docker.containers.run.call_args[1]
-                        assert f"{SANDBOX_AGENT_PORT}/tcp" in call_kwargs["ports"]
+                    # Check that port was exposed
+                    call_kwargs = mock_docker.containers.run.call_args[1]
+                    assert f"{SANDBOX_AGENT_PORT}/tcp" in call_kwargs["ports"]
 
 
 @pytest.mark.unit
@@ -153,18 +150,16 @@ class TestHealthCheck:
         mock_container.attrs = {"NetworkSettings": {"Ports": {"9000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "9001"}]}}}
         agent = AgentInstance(uid=1, container=mock_container, temp_dir="/tmp/test", port=9000)
 
-        with patch("httpx.get") as mock_get:
-            with patch("time.sleep"):
-                with patch("time.time", side_effect=[0, 1, 2, 3, 4, 5, 6]):
-                    mock_get.side_effect = Exception("Connection refused")
+        with patch("httpx.get") as mock_get, patch("time.sleep"), patch("time.time", side_effect=[0, 1, 2, 3, 4, 5, 6]):
+            mock_get.side_effect = Exception("Connection refused")
 
-                    from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
+            from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
 
-                    manager = SandboxManager.__new__(SandboxManager)
+            manager = SandboxManager.__new__(SandboxManager)
 
-                    result = manager.health_check(agent, timeout=5)
+            result = manager.health_check(agent, timeout=5)
 
-                    assert result is False
+            assert result is False
 
     def test_health_check_returns_false_on_failure(self):
         """Test that health_check returns False when endpoint fails."""
@@ -174,20 +169,18 @@ class TestHealthCheck:
         mock_container.attrs = {"NetworkSettings": {"Ports": {"9000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "9001"}]}}}
         agent = AgentInstance(uid=1, container=mock_container, temp_dir="/tmp/test", port=9000)
 
-        with patch("httpx.get") as mock_get:
-            with patch("time.sleep"):
-                with patch("time.time", side_effect=[0, 1, 2, 3, 4, 5, 6]):
-                    mock_response = Mock()
-                    mock_response.status_code = 500
-                    mock_get.return_value = mock_response
+        with patch("httpx.get") as mock_get, patch("time.sleep"), patch("time.time", side_effect=[0, 1, 2, 3, 4, 5, 6]):
+            mock_response = Mock()
+            mock_response.status_code = 500
+            mock_get.return_value = mock_response
 
-                    from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
+            from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
 
-                    manager = SandboxManager.__new__(SandboxManager)
+            manager = SandboxManager.__new__(SandboxManager)
 
-                    result = manager.health_check(agent, timeout=5)
+            result = manager.health_check(agent, timeout=5)
 
-                    assert result is False
+            assert result is False
 
 
 @pytest.mark.unit
@@ -196,65 +189,62 @@ class TestCleanup:
 
     def test_cleanup_agent_stops_container_and_removes_files(self):
         """Test that cleanup_agent stops container and removes temp directory."""
-        from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager, AgentInstance
+        from autoppia_web_agents_subnet.opensource.sandbox_manager import AgentInstance, SandboxManager
 
-        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
-            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
-                with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.stop_and_remove") as mock_stop:
-                    with patch("shutil.rmtree") as mock_rmtree:
-                        mock_docker = MagicMock()
-                        mock_client.return_value = mock_docker
+        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client, patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
+            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.stop_and_remove") as mock_stop:
+                with patch("shutil.rmtree") as mock_rmtree:
+                    mock_docker = MagicMock()
+                    mock_client.return_value = mock_docker
 
-                        manager = SandboxManager()
+                    manager = SandboxManager()
 
-                        # Add an agent
-                        mock_container = Mock()
-                        agent = AgentInstance(uid=1, container=mock_container, temp_dir="/tmp/test", port=9000)
-                        manager._agents[1] = agent
+                    # Add an agent
+                    mock_container = Mock()
+                    agent = AgentInstance(uid=1, container=mock_container, temp_dir="/tmp/test", port=9000)
+                    manager._agents[1] = agent
 
-                        manager.cleanup_agent(1)
+                    manager.cleanup_agent(1)
 
-                        # Should have stopped container and removed files
-                        mock_stop.assert_called_once_with(mock_container)
-                        mock_rmtree.assert_called_once_with("/tmp/test", ignore_errors=True)
+                    # Should have stopped container and removed files
+                    mock_stop.assert_called_once_with(mock_container)
+                    mock_rmtree.assert_called_once_with("/tmp/test", ignore_errors=True)
 
     def test_cleanup_all_agents_cleans_up_all_agents(self):
         """Test that cleanup_all_agents cleans up all deployed agents."""
-        from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager, AgentInstance
+        from autoppia_web_agents_subnet.opensource.sandbox_manager import AgentInstance, SandboxManager
 
-        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
-            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
-                with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.stop_and_remove"):
-                    with patch("shutil.rmtree"):
-                        mock_docker = MagicMock()
-                        mock_client.return_value = mock_docker
+        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client, patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
+            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.stop_and_remove"):
+                with patch("shutil.rmtree"):
+                    mock_docker = MagicMock()
+                    mock_client.return_value = mock_docker
 
-                        manager = SandboxManager()
+                    manager = SandboxManager()
 
-                        # Add multiple agents
-                        for uid in [1, 2, 3]:
-                            mock_container = Mock()
-                            agent = AgentInstance(uid=uid, container=mock_container, temp_dir=f"/tmp/test{uid}", port=9000)
-                            manager._agents[uid] = agent
+                    # Add multiple agents
+                    for uid in [1, 2, 3]:
+                        mock_container = Mock()
+                        agent = AgentInstance(uid=uid, container=mock_container, temp_dir=f"/tmp/test{uid}", port=9000)
+                        manager._agents[uid] = agent
 
-                        manager.cleanup_all_agents()
+                    manager.cleanup_all_agents()
 
-                        # All agents should be removed
-                        assert len(manager._agents) == 0
+                    # All agents should be removed
+                    assert len(manager._agents) == 0
 
     def test_cleanup_handles_missing_agents_gracefully(self):
         """Test that cleanup handles missing agents without errors."""
         from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
 
-        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
-            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
-                mock_docker = MagicMock()
-                mock_client.return_value = mock_docker
+        with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client, patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
+            mock_docker = MagicMock()
+            mock_client.return_value = mock_docker
 
-                manager = SandboxManager()
+            manager = SandboxManager()
 
-                # Try to cleanup non-existent agent
-                manager.cleanup_agent(999)  # Should not raise exception
+            # Try to cleanup non-existent agent
+            manager.cleanup_agent(999)  # Should not raise exception
 
 
 @pytest.mark.unit
@@ -359,12 +349,11 @@ class TestGateway:
         """Test that gateway deployment fails fast when provider keys are missing."""
         from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
 
-        with patch.dict(os.environ, {}, clear=True):
-            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
-                with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
-                    mock_docker = MagicMock()
-                    mock_client.return_value = mock_docker
+        with patch.dict(os.environ, {}, clear=True), patch("autoppia_web_agents_subnet.opensource.sandbox_manager.get_client") as mock_client:
+            with patch("autoppia_web_agents_subnet.opensource.sandbox_manager.ensure_network"):
+                mock_docker = MagicMock()
+                mock_client.return_value = mock_docker
 
-                    manager = SandboxManager()
-                    with pytest.raises(RuntimeError, match="Missing API keys"):
-                        manager.deploy_gateway()
+                manager = SandboxManager()
+                with pytest.raises(RuntimeError, match="Missing API keys"):
+                    manager.deploy_gateway()

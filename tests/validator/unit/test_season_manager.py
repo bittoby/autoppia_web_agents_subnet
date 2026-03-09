@@ -4,10 +4,12 @@ Unit tests for SeasonManager.
 Tests season calculations, task generation, and caching.
 """
 
-import pytest
 from unittest.mock import patch
-from autoppia_web_agents_subnet.validator.season_manager import SeasonManager
+
+import pytest
+
 from autoppia_web_agents_subnet.validator.models import TaskWithProject
+from autoppia_web_agents_subnet.validator.season_manager import SeasonManager
 
 
 @pytest.mark.unit
@@ -63,8 +65,8 @@ class TestTaskGeneration:
         monkeypatch.setattr(SeasonManager, "TASKS_DIR", tmp_path)
         manager = SeasonManager()
 
-        from autoppia_iwa.src.demo_webs.config import demo_web_projects
         from autoppia_iwa.src.data_generation.tasks.classes import Task
+        from autoppia_iwa.src.demo_webs.config import demo_web_projects
 
         project = demo_web_projects[0]
 
@@ -83,8 +85,8 @@ class TestTaskGeneration:
         monkeypatch.setattr(SeasonManager, "TASKS_DIR", tmp_path)
         manager = SeasonManager()
 
-        from autoppia_iwa.src.demo_webs.config import demo_web_projects
         from autoppia_iwa.src.data_generation.tasks.classes import Task
+        from autoppia_iwa.src.demo_webs.config import demo_web_projects
 
         project = demo_web_projects[0]
 
@@ -148,8 +150,8 @@ class TestSeasonTransitions:
         base = int(manager.minimum_start_block)
         season_len = int(manager.season_block_length)
 
-        from autoppia_iwa.src.demo_webs.config import demo_web_projects
         from autoppia_iwa.src.data_generation.tasks.classes import Task
+        from autoppia_iwa.src.demo_webs.config import demo_web_projects
 
         project = demo_web_projects[0]
 

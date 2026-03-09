@@ -1,31 +1,30 @@
 from __future__ import annotations
 
 import json
-import time
-import queue
 import os
+import queue
+import time
 from pathlib import Path
+
 import bittensor as bt
+from autoppia_iwa.src.bootstrap import AppBootstrap
 
 from autoppia_web_agents_subnet import SUBNET_IWA_VERSION
-
 from autoppia_web_agents_subnet.base.validator import BaseValidatorNeuron
 from autoppia_web_agents_subnet.bittensor_config import config
+from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
+from autoppia_web_agents_subnet.platform.validator_mixin import ValidatorPlatformMixin
 from autoppia_web_agents_subnet.validator.config import (
-    ROUND_SIZE_EPOCHS,
     BURN_UID,
+    ROUND_SIZE_EPOCHS,
 )
+from autoppia_web_agents_subnet.validator.evaluation.mixin import ValidatorEvaluationMixin
+from autoppia_web_agents_subnet.validator.models import AgentInfo
 from autoppia_web_agents_subnet.validator.round_manager import RoundManager, RoundPhase
-from autoppia_web_agents_subnet.validator.season_manager import SeasonManager
 from autoppia_web_agents_subnet.validator.round_start.mixin import ValidatorRoundStartMixin
 from autoppia_web_agents_subnet.validator.round_start.types import RoundStartResult
-from autoppia_web_agents_subnet.validator.evaluation.mixin import ValidatorEvaluationMixin
+from autoppia_web_agents_subnet.validator.season_manager import SeasonManager
 from autoppia_web_agents_subnet.validator.settlement.mixin import ValidatorSettlementMixin
-from autoppia_web_agents_subnet.platform.validator_mixin import ValidatorPlatformMixin
-
-from autoppia_iwa.src.bootstrap import AppBootstrap
-from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
-from autoppia_web_agents_subnet.validator.models import AgentInfo
 
 
 class Validator(

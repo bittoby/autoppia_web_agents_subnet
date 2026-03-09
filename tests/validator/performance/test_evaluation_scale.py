@@ -6,11 +6,12 @@ while maintaining acceptable performance and memory usage.
 """
 
 import asyncio
-import time
-import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
-import psutil
 import os
+import time
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import psutil
+import pytest
 
 
 @pytest.mark.performance
@@ -21,9 +22,10 @@ class TestEvaluationScaling:
     @pytest.mark.asyncio
     async def test_evaluate_100_agents_completes_in_time(self, validator_with_agents, season_tasks):
         """Test that evaluating 100 agents completes within time limit."""
-        from tests.conftest import _bind_evaluation_mixin
-        from autoppia_web_agents_subnet.validator.models import AgentInfo
         import queue
+
+        from autoppia_web_agents_subnet.validator.models import AgentInfo
+        from tests.conftest import _bind_evaluation_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
 
@@ -88,9 +90,10 @@ class TestEvaluationScaling:
     @pytest.mark.asyncio
     async def test_evaluation_memory_usage_stays_bounded(self, validator_with_agents, season_tasks):
         """Test that memory usage doesn't grow unbounded during evaluation."""
-        from tests.conftest import _bind_evaluation_mixin
-        from autoppia_web_agents_subnet.validator.models import AgentInfo
         import queue
+
+        from autoppia_web_agents_subnet.validator.models import AgentInfo
+        from tests.conftest import _bind_evaluation_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
 
@@ -141,10 +144,11 @@ class TestEvaluationScaling:
     @pytest.mark.asyncio
     async def test_concurrent_evaluations_dont_interfere(self, mock_validator_config, season_tasks):
         """Test that concurrent evaluations maintain isolation."""
+        import queue
+        from unittest.mock import Mock
+
         from autoppia_web_agents_subnet.validator.evaluation.mixin import ValidatorEvaluationMixin
         from autoppia_web_agents_subnet.validator.models import AgentInfo
-        from unittest.mock import Mock
-        import queue
 
         class TestValidator(ValidatorEvaluationMixin):
             def __init__(self, config, tasks):
@@ -205,10 +209,10 @@ class TestEvaluationScaling:
                     await asyncio.gather(validator1._run_evaluation_phase(), validator2._run_evaluation_phase())
 
         # Verify no cross-contamination
-        for uid, agent in validator1.agents_dict.items():
+        for _uid, agent in validator1.agents_dict.items():
             assert agent.agent_name.startswith("V1_"), f"Validator1 has wrong agent: {agent.agent_name}"
 
-        for uid, agent in validator2.agents_dict.items():
+        for _uid, agent in validator2.agents_dict.items():
             assert agent.agent_name.startswith("V2_"), f"Validator2 has wrong agent: {agent.agent_name}"
 
 
@@ -220,9 +224,10 @@ class TestEvaluationThroughput:
     @pytest.mark.asyncio
     async def test_evaluation_throughput_with_varying_task_count(self, validator_with_agents):
         """Test evaluation throughput with different numbers of tasks."""
-        from tests.conftest import _bind_evaluation_mixin
-        from autoppia_web_agents_subnet.validator.models import AgentInfo, TaskWithProject
         import queue
+
+        from autoppia_web_agents_subnet.validator.models import AgentInfo, TaskWithProject
+        from tests.conftest import _bind_evaluation_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
 
@@ -292,9 +297,10 @@ class TestEvaluationThroughput:
     @pytest.mark.asyncio
     async def test_sandbox_deployment_parallelism(self, validator_with_agents, season_tasks):
         """Test that sandbox deployments happen efficiently."""
-        from tests.conftest import _bind_evaluation_mixin
-        from autoppia_web_agents_subnet.validator.models import AgentInfo
         import queue
+
+        from autoppia_web_agents_subnet.validator.models import AgentInfo
+        from tests.conftest import _bind_evaluation_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
 

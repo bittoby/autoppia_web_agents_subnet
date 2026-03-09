@@ -6,8 +6,8 @@ Reads from stdin (PM2 logs) and splits by round number.
 
 import re
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Find repo root
 SCRIPT_PATH = Path(__file__).resolve()
@@ -55,7 +55,7 @@ def process_line(line: str):
         # Open new round file
         current_round = new_round
         round_log = ROUNDS_DIR / f"round_{current_round}.log"
-        current_round_file = open(round_log, "a", encoding="utf-8")
+        current_round_file = open(round_log, "a", encoding="utf-8")  # noqa: SIM115
         print(f"[{datetime.now()}] Started logging round {current_round} → {round_log}", file=sys.stderr, flush=True)
 
     # Write to current round file

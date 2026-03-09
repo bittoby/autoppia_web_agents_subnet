@@ -7,9 +7,10 @@ This test verifies the complete flow:
 3. Batch submission to IWAP works
 """
 
-import pytest
-from unittest.mock import AsyncMock
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 from autoppia_web_agents_subnet.platform import models as iwa_models
 from autoppia_web_agents_subnet.platform.utils.task_flow import prepare_evaluation_payload
@@ -168,7 +169,7 @@ async def test_batch_submission_flow(mock_ctx):
 
     evaluations_batch = []
 
-    for task_id, url, prompt, score, exec_time, reward in tasks_data:
+    for task_id, url, _prompt, score, exec_time, reward in tasks_data:
         task_id_full = f"{mock_ctx.current_round_id}_{task_id}"
         task_payload = mock_ctx.current_round_tasks[task_id_full]
 

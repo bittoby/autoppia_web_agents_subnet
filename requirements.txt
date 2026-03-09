@@ -1,6 +1,7 @@
 pydantic
 rich
 docker
+httpx
 pytest
 pytest-asyncio
 pytest-mock

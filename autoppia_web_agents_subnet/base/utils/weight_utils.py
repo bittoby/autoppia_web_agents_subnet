@@ -1,8 +1,9 @@
 import os
-import numpy as np
-from typing import Tuple, List, Union, Any
+from typing import Any
+
 import bittensor
-from numpy import ndarray, dtype, floating, complexfloating
+import numpy as np
+from numpy import complexfloating, dtype, floating, ndarray
 
 U32_MAX = 4294967295
 U16_MAX = 65535
@@ -51,7 +52,7 @@ def normalize_max_weight(x: np.ndarray, limit: float = 0.1) -> np.ndarray:
         return y
 
 
-def convert_weights_and_uids_for_emit(uids: np.ndarray, weights: np.ndarray) -> Tuple[List[int], List[int]]:
+def convert_weights_and_uids_for_emit(uids: np.ndarray, weights: np.ndarray) -> tuple[list[int], list[int]]:
     r"""Converts weights into integer u32 representation that sum to MAX_INT_WEIGHT.
     Args:
         uids (:obj:`np.ndarray,`):
@@ -75,11 +76,11 @@ def convert_weights_and_uids_for_emit(uids: np.ndarray, weights: np.ndarray) -> 
     # bittensor.logging.debug(f"non_zero_weight_uids: {non_zero_weight_uids}")
 
     if np.min(weights) < 0:
-        raise ValueError("Passed weight is negative cannot exist on chain {}".format(weights))
+        raise ValueError(f"Passed weight is negative cannot exist on chain {weights}")
     if np.min(uids) < 0:
-        raise ValueError("Passed uid is negative cannot exist on chain {}".format(uids))
+        raise ValueError(f"Passed uid is negative cannot exist on chain {uids}")
     if len(uids) != len(weights):
-        raise ValueError("Passed weights and uids must have the same length, got {} and {}".format(len(uids), len(weights)))
+        raise ValueError(f"Passed weights and uids must have the same length, got {len(uids)} and {len(weights)}")
     if np.sum(weights) == 0:
         bittensor.logging.debug("nothing to set on chain")
         return [], []  # Nothing to set on chain.
@@ -92,7 +93,7 @@ def convert_weights_and_uids_for_emit(uids: np.ndarray, weights: np.ndarray) -> 
 
     weight_vals = []
     weight_uids = []
-    for i, (weight_i, uid_i) in enumerate(list(zip(weights, uids))):
+    for _i, (weight_i, uid_i) in enumerate(list(zip(weights, uids, strict=False))):
         uint16_val = round(float(weight_i) * int(U16_MAX))  # convert to int representation.
 
         # Filter zeros
@@ -110,20 +111,7 @@ def process_weights_for_netuid(
     subtensor: "bittensor.subtensor",
     metagraph: "bittensor.metagraph" = None,
     exclude_quantile: int = 0,
-) -> Union[
-    tuple[
-        ndarray[Any, dtype[Any]],
-        Union[
-            Union[
-                ndarray[Any, dtype[floating[Any]]],
-                ndarray[Any, dtype[complexfloating[Any, Any]]],
-            ],
-            Any,
-        ],
-    ],
-    tuple[ndarray[Any, dtype[Any]], ndarray],
-    tuple[Any, ndarray],
-]:
+) -> tuple[ndarray[Any, dtype[Any]], ndarray[Any, dtype[floating[Any]]] | ndarray[Any, dtype[complexfloating[Any, Any]]] | Any] | tuple[ndarray[Any, dtype[Any]], ndarray] | tuple[Any, ndarray]:
     # bittensor.logging.debug("process_weights_for_netuid()")
     # bittensor.logging.debug("weights", weights)
     # bittensor.logging.debug("netuid", netuid)

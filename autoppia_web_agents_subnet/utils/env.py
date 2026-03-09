@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 try:
     from dotenv import load_dotenv
@@ -12,7 +11,7 @@ except Exception:  # pragma: no cover - optional dependency for miner-only setup
 load_dotenv()
 
 
-def _env_str(name: str, default: str = "", *, test_default: Optional[str] = None) -> str:
+def _env_str(name: str, default: str = "", *, test_default: str | None = None) -> str:
     """
     Retrieve a string environment variable.
     Supports TEST_* overrides when TESTING=true.
@@ -34,7 +33,7 @@ def _env_str(name: str, default: str = "", *, test_default: Optional[str] = None
     return os.getenv(name, default).strip()
 
 
-def _env_bool(name: str, default: bool = False, *, test_default: Optional[bool] = None) -> bool:
+def _env_bool(name: str, default: bool = False, *, test_default: bool | None = None) -> bool:
     """
     Retrieve a boolean environment variable, falling back to default for invalid values.
     Supports TEST_* overrides when TESTING=true.
@@ -56,7 +55,7 @@ def _env_bool(name: str, default: bool = False, *, test_default: Optional[bool] 
     return _parse_bool(_env_str(name, str(default)))
 
 
-def _env_int(name: str, default: int = 0, *, test_default: Optional[int] = None) -> int:
+def _env_int(name: str, default: int = 0, *, test_default: int | None = None) -> int:
     """
     Retrieve an integer environment variable, falling back to default for invalid values.
     """
@@ -76,7 +75,7 @@ def _env_int(name: str, default: int = 0, *, test_default: Optional[int] = None)
     return int(_env_str(name, str(default)))
 
 
-def _env_float(name: str, default: float = 0.0, *, test_default: Optional[float] = None) -> float:
+def _env_float(name: str, default: float = 0.0, *, test_default: float | None = None) -> float:
     """
     Retrieve a float environment variable, falling back to default for invalid values and testing default if provided.
     When TESTING=true: use TEST_<name> if set, else use <name> from env if set (so .env is respected), else test_default.

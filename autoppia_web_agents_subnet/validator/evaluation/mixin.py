@@ -1,18 +1,20 @@
 """Evaluation-phase helper mixin used in tests."""
 
 from __future__ import annotations
+
 import asyncio
+import contextlib
 import inspect
 
-from autoppia_web_agents_subnet.validator.evaluation.stateful_cua_eval import evaluate_with_stateful_cua
-from autoppia_web_agents_subnet.validator.evaluation.rewards import calculate_reward_for_task
-from autoppia_web_agents_subnet.validator import config as validator_config
-from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
-from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 from autoppia_web_agents_subnet.opensource.utils_git import (
     normalize_and_validate_github_url,
     resolve_remote_ref_commit,
 )
+from autoppia_web_agents_subnet.utils.logging import ColoredLogger
+from autoppia_web_agents_subnet.validator import config as validator_config
+from autoppia_web_agents_subnet.validator.evaluation.rewards import calculate_reward_for_task
+from autoppia_web_agents_subnet.validator.evaluation.stateful_cua_eval import evaluate_with_stateful_cua
+from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
 
 
 class ValidatorEvaluationMixin:
@@ -58,7 +60,7 @@ class ValidatorEvaluationMixin:
                 season_tasks = None
         if not isinstance(season_tasks, list):
             try:
-                res = getattr(self.season_manager, "get_season_tasks")(reference_block, self.round_manager)
+                res = self.season_manager.get_season_tasks(reference_block, self.round_manager)
                 if inspect.isawaitable(res):
                     res = await res
                 season_tasks = res
@@ -102,17 +104,13 @@ class ValidatorEvaluationMixin:
                 finalized_score = float(score)
                 agent.score = finalized_score  # type: ignore[attr-defined]
             except Exception:
-                try:
+                with contextlib.suppress(Exception):
                     agent.score = 0.0  # type: ignore[attr-defined]
-                except Exception:
-                    pass
             if finalized_score <= 0.0 and zero_reason:
-                try:
+                with contextlib.suppress(Exception):
                     agent.zero_reason = zero_reason  # type: ignore[attr-defined]
-                except Exception:
-                    pass
             try:
-                agent_uid = int(getattr(agent, "uid"))
+                agent_uid = int(agent.uid)
                 run = getattr(self, "current_agent_runs", {}).get(agent_uid)
                 if run is not None:
                     run.zero_reason = zero_reason if finalized_score <= 0.0 else None
@@ -123,7 +121,7 @@ class ValidatorEvaluationMixin:
                 if not isinstance(status_map, dict):
                     status_map = {}
                     self.eligibility_status_by_uid = status_map
-                agent_uid = int(getattr(agent, "uid"))
+                agent_uid = int(agent.uid)
                 if zero_reason in invalid_eligibility_reasons:
                     status_map[agent_uid] = str(zero_reason)
                 else:
@@ -137,23 +135,15 @@ class ValidatorEvaluationMixin:
             except Exception:
                 current_best = 0.0
             if finalized_score > current_best:
-                try:
+                with contextlib.suppress(Exception):
                     self._best_score_ever = finalized_score
-                except Exception:
-                    pass
-            try:
+            with contextlib.suppress(Exception):
                 agent.evaluated = True  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 agent.last_evaluated_round = round_number  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 if season_number:
                     agent.last_evaluated_season = season_number  # type: ignore[attr-defined]
-            except Exception:
-                pass
             # Clear any stale pending submission once we've processed the agent in this round.
             for attr in (
                 "pending_github_url",
@@ -163,14 +153,10 @@ class ValidatorEvaluationMixin:
                 "pending_ref",
                 "pending_received_round",
             ):
-                try:
+                with contextlib.suppress(Exception):
                     setattr(agent, attr, None)
-                except Exception:
-                    pass
-            try:
+            with contextlib.suppress(Exception):
                 self.agents_dict[agent.uid] = agent  # type: ignore[attr-defined]
-            except Exception:
-                pass
             # Register (repo, commit) so we don't re-evaluate this miner on same commit in future rounds
             if register_commit:
                 try:
@@ -321,7 +307,7 @@ class ValidatorEvaluationMixin:
                     round_times = getattr(getattr(self, "round_manager", None), "round_times", None)
                     for pending_agent in pending_agents:
                         try:
-                            pending_uid = int(getattr(pending_agent, "uid"))
+                            pending_uid = int(pending_agent.uid)
                         except Exception:
                             continue
                         try:
@@ -515,7 +501,7 @@ class ValidatorEvaluationMixin:
                     # Prepare batch data for IWAP submission
                     batch_eval_data = []  # Store (task_item, score, exec_time, cost, reward, eval_result)
 
-                    for task_item, eval_result in zip(batch_tasks, eval_results):
+                    for task_item, eval_result in zip(batch_tasks, eval_results, strict=False):
                         tasks_evaluated_for_agent += 1
                         if isinstance(eval_result, Exception):
                             ColoredLogger.error(
@@ -614,9 +600,9 @@ class ValidatorEvaluationMixin:
                         except Exception:  # pragma: no cover
                             _TaskSolution = None
 
-                        def _summarize_task_solution(ts) -> str:
+                        def _summarize_task_solution(ts, _ts_cls=_TaskSolution) -> str:
                             try:
-                                if _TaskSolution is not None and isinstance(ts, _TaskSolution):
+                                if _ts_cls is not None and isinstance(ts, _ts_cls):
                                     actions = getattr(ts, "actions", []) or []
                                     task_id = getattr(ts, "task_id", None)
                                     recording = getattr(ts, "recording", None)
@@ -655,10 +641,7 @@ class ValidatorEvaluationMixin:
                         # Log actions returned by the miner for easy grep/debug.
                         try:
                             action_list = []
-                            if isinstance(task_solution, dict):
-                                action_list = task_solution.get("actions") or []
-                            else:
-                                action_list = getattr(task_solution, "actions", []) or []
+                            action_list = task_solution.get("actions") or [] if isinstance(task_solution, dict) else getattr(task_solution, "actions", []) or []
                             action_types = []
                             for a in action_list:
                                 t = getattr(a, "type", None) or (a.get("type") if isinstance(a, dict) else None)
@@ -675,10 +658,7 @@ class ValidatorEvaluationMixin:
                         # This is the ground truth used for backend event checks.
                         try:
                             recording = None
-                            if isinstance(task_solution, dict):
-                                recording = task_solution.get("recording")
-                            else:
-                                recording = getattr(task_solution, "recording", None)
+                            recording = task_solution.get("recording") if isinstance(task_solution, dict) else getattr(task_solution, "recording", None)
 
                             exec_hist = None
                             if isinstance(recording, dict):
@@ -691,17 +671,11 @@ class ValidatorEvaluationMixin:
                             if isinstance(exec_hist, list):
                                 for h in exec_hist:
                                     a = getattr(h, "action", None) if not isinstance(h, dict) else h.get("action")
-                                    if isinstance(a, dict):
-                                        t = a.get("type")
-                                    else:
-                                        t = getattr(a, "type", None)
+                                    t = a.get("type") if isinstance(a, dict) else getattr(a, "type", None)
                                     if t:
                                         exec_types.append(str(t))
                                     snap = getattr(h, "browser_snapshot", None) if not isinstance(h, dict) else h.get("browser_snapshot")
-                                    if isinstance(snap, dict):
-                                        last_url = snap.get("current_url") or snap.get("url") or last_url
-                                    else:
-                                        last_url = getattr(snap, "current_url", None) or last_url
+                                    last_url = snap.get("current_url") or snap.get("url") or last_url if isinstance(snap, dict) else getattr(snap, "current_url", None) or last_url
 
                             ColoredLogger.info(
                                 f"[EXEC_ACTIONS] task_id={task_item.task.id} uid={agent.uid} actions={exec_types} last_url={last_url}",
@@ -824,10 +798,7 @@ class ValidatorEvaluationMixin:
                 avg_reward = (sum(rewards) / float(total_tasks)) if total_tasks > 0 else 0.0
                 if avg_reward <= 0.0:
                     # All evaluated tasks failed: distinguish timeout vs other failure
-                    if eval_details and all(score <= 0.0 and exec_time >= task_timeout_sec for score, exec_time in eval_details):
-                        zero_reason = "task_timeout"
-                    else:
-                        zero_reason = "task_failed"
+                    zero_reason = "task_timeout" if eval_details and all(score <= 0.0 and exec_time >= task_timeout_sec for score, exec_time in eval_details) else "task_failed"
                 else:
                     zero_reason = None
                 _finalize_agent(agent, score=float(avg_reward), zero_reason=zero_reason)
@@ -875,8 +846,8 @@ class ValidatorEvaluationMixin:
         agent_run = self.current_agent_runs[agent_uid]
 
         # Prepare all evaluation payloads
-        from autoppia_web_agents_subnet.platform.utils.task_flow import prepare_evaluation_payload
         from autoppia_web_agents_subnet.platform.utils.iwa_core import extract_gif_bytes
+        from autoppia_web_agents_subnet.platform.utils.task_flow import prepare_evaluation_payload
 
         evaluations_batch = []
         pending_gif_uploads: list[tuple[str, object]] = []
@@ -955,10 +926,7 @@ class ValidatorEvaluationMixin:
                 # Fallback: create empty solution
                 solution = TaskSolution(task_id=base_task_id, actions=[], web_agent_id=str(agent_uid))
 
-            if not isinstance(evaluation_meta_dict, dict):
-                evaluation_meta_dict = {}
-            else:
-                evaluation_meta_dict = dict(evaluation_meta_dict)
+            evaluation_meta_dict = {} if not isinstance(evaluation_meta_dict, dict) else dict(evaluation_meta_dict)
             if isinstance(eval_data.get("llm_usage"), list):
                 evaluation_meta_dict["llm_usage"] = eval_data.get("llm_usage")
             if isinstance(eval_data.get("llm_calls"), list):
@@ -1099,7 +1067,7 @@ class ValidatorEvaluationMixin:
                             }
                         )
                         self._s3_task_log_urls = task_logs_payload
-                except Exception as log_exc:  # noqa: BLE001
+                except Exception as log_exc:
                     ColoredLogger.warning(
                         f"Task log upload failed for task_id={getattr(task_payload, 'task_id', None)} miner_uid={task_log_miner_uid}: {log_exc}",
                         ColoredLogger.YELLOW,

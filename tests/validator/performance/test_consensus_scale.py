@@ -6,11 +6,12 @@ and score commitments.
 """
 
 import asyncio
-import time
-import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
-import psutil
 import os
+import time
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import psutil
+import pytest
 
 
 @pytest.mark.performance
@@ -67,7 +68,7 @@ class TestConsensusScaling:
         assert len(aggregated) == num_miners, f"Expected {num_miners} aggregated scores, got {len(aggregated)}"
 
         # Scores should be averaged
-        for miner_uid, score in aggregated.items():
+        for _miner_uid, score in aggregated.items():
             assert 0.0 <= score <= 1.0, f"Score {score} out of range"
 
     @pytest.mark.asyncio
@@ -189,7 +190,7 @@ class TestIPFSPerformance:
 
         # Upload multiple payloads
         cids = []
-        for i in range(num_uploads):
+        for _i in range(num_uploads):
             cid = await mock_ipfs_client.add_json_async(payload)
             cids.append(cid[0])
 
@@ -245,9 +246,10 @@ class TestStressTests:
     @pytest.mark.asyncio
     async def test_continuous_rounds_no_memory_leak(self, mock_validator_config, season_tasks):
         """Test that continuous rounds don't leak memory."""
+        import queue
+
         from autoppia_web_agents_subnet.validator.evaluation.mixin import ValidatorEvaluationMixin
         from autoppia_web_agents_subnet.validator.models import AgentInfo
-        import queue
 
         class TestValidator(ValidatorEvaluationMixin):
             def __init__(self, config, tasks):
@@ -284,7 +286,7 @@ class TestStressTests:
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
 
         # Simulate 10 rounds
-        for round_num in range(10):
+        for _round_num in range(10):
             # Add some agents using real queue
             validator.agents_dict = {}
             validator.agents_queue = queue.Queue()
@@ -316,8 +318,8 @@ class TestStressTests:
     @pytest.mark.asyncio
     async def test_validator_handles_10_tasks_per_agent(self, validator_with_agents):
         """Test validator can handle 10 tasks per agent."""
-        from tests.conftest import _bind_evaluation_mixin
         from autoppia_web_agents_subnet.validator.models import AgentInfo, TaskWithProject
+        from tests.conftest import _bind_evaluation_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
 
@@ -356,14 +358,16 @@ class TestStressTests:
             await asyncio.sleep(0.001)
             return (0.8, None, None)
 
-        with patch("autoppia_web_agents_subnet.validator.evaluation.mixin.evaluate_with_stateful_cua", new=mock_evaluate):
-            with patch(
+        with (
+            patch("autoppia_web_agents_subnet.validator.evaluation.mixin.evaluate_with_stateful_cua", new=mock_evaluate),
+            patch(
                 "autoppia_web_agents_subnet.validator.evaluation.mixin.resolve_remote_ref_commit",
                 return_value="deadbeef",
-            ):
-                start_time = time.time()
-                await validator_with_agents._run_evaluation_phase()
-                elapsed = time.time() - start_time
+            ),
+        ):
+            start_time = time.time()
+            await validator_with_agents._run_evaluation_phase()
+            elapsed = time.time() - start_time
 
         # Should complete in reasonable time
         assert elapsed < 5.0, f"Evaluation took {elapsed:.2f}s, expected < 5s"

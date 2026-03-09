@@ -1,11 +1,11 @@
-from autoppia_web_agents_subnet.utils.env import (
-    _env_str,
-    _env_bool,
-    _env_int,
-    _env_float,
-)
-
 import os
+
+from autoppia_web_agents_subnet.utils.env import (
+    _env_bool,
+    _env_float,
+    _env_int,
+    _env_str,
+)
 
 TESTING = _env_bool("TESTING", False)
 
@@ -170,6 +170,7 @@ IWAP_API_BASE_URL = _env_str(
 
 def validate_config():
     import sys
+
     import bittensor as bt
 
     if not VALIDATOR_NAME or not VALIDATOR_IMAGE:

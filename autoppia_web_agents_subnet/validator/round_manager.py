@@ -3,14 +3,14 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 from autoppia_web_agents_subnet.validator.config import (
-    SEASON_SIZE_EPOCHS,
-    ROUND_SIZE_EPOCHS,
-    MINIMUM_START_BLOCK,
     FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION,
+    MINIMUM_START_BLOCK,
+    ROUND_SIZE_EPOCHS,
+    SEASON_SIZE_EPOCHS,
 )
 
 
@@ -34,9 +34,9 @@ class PhaseTransition:
     """Record of a phase transition within a round."""
 
     phase: RoundPhase
-    started_at_block: Optional[int] = None
-    started_at_epoch: Optional[float] = None
-    note: Optional[str] = None
+    started_at_block: int | None = None
+    started_at_epoch: float | None = None
+    note: str | None = None
     started_at_time: float = field(default_factory=time.time)
 
 
@@ -45,12 +45,12 @@ class RoundStatus:
     """Lightweight snapshot of the current round status."""
 
     phase: RoundPhase
-    round_start_block: Optional[int]
-    target_block: Optional[int]
-    current_block: Optional[int]
-    blocks_remaining: Optional[int]
-    minutes_remaining: Optional[float]
-    note: Optional[str] = None
+    round_start_block: int | None
+    target_block: int | None
+    current_block: int | None
+    blocks_remaining: int | None
+    minutes_remaining: float | None
+    note: str | None = None
 
 
 class RoundManager:
@@ -67,10 +67,10 @@ class RoundManager:
 
     def __init__(
         self,
-        season_size_epochs: Optional[float] = None,
-        round_size_epochs: Optional[float] = None,
-        minimum_start_block: Optional[int] = None,
-        settlement_fraction: Optional[float] = None,
+        season_size_epochs: float | None = None,
+        round_size_epochs: float | None = None,
+        minimum_start_block: int | None = None,
+        settlement_fraction: float | None = None,
     ):
         self.season_size_epochs = season_size_epochs if season_size_epochs is not None else SEASON_SIZE_EPOCHS
         self.round_size_epochs = round_size_epochs if round_size_epochs is not None else ROUND_SIZE_EPOCHS
@@ -93,7 +93,7 @@ class RoundManager:
 
         # Phase tracking
         self.current_phase: RoundPhase = RoundPhase.IDLE
-        self.phase_history: List[PhaseTransition] = []
+        self.phase_history: list[PhaseTransition] = []
 
     # ──────────────────────────────────────────────────────────────────────────
     # Round timing helpers
@@ -179,7 +179,7 @@ class RoundManager:
             note="Starting new round",
         )
 
-    def get_round_boundaries(self, current_block: int, *, log_debug: bool = True) -> Dict[str, Any]:
+    def get_round_boundaries(self, current_block: int, *, log_debug: bool = True) -> dict[str, Any]:
         if self.round_number is None:
             self.sync_boundaries(current_block)
 
@@ -192,12 +192,12 @@ class RoundManager:
             "fraction_elapsed": self.fraction_elapsed(current_block),
         }
 
-    def get_current_boundaries(self) -> Dict[str, Any]:
+    def get_current_boundaries(self) -> dict[str, Any]:
         if self.start_block is None:
             raise RuntimeError("Round boundaries not initialized")
         return self.get_round_boundaries(self.start_block, log_debug=False)
 
-    def get_wait_info(self, current_block: int) -> Dict[str, Any]:
+    def get_wait_info(self, current_block: int) -> dict[str, Any]:
         if self.round_number is None:
             self.sync_boundaries(current_block)
 
@@ -280,8 +280,8 @@ class RoundManager:
         self,
         phase: RoundPhase,
         *,
-        block: Optional[int] = None,
-        note: Optional[str] = None,
+        block: int | None = None,
+        note: str | None = None,
         force: bool = False,
     ) -> PhaseTransition:
         if not force and self.current_phase == phase and self.phase_history:
@@ -324,14 +324,14 @@ class RoundManager:
 
         ColoredLogger.info("Round phase timeline ➜ " + " → ".join(lines), ColoredLogger.ORANGE)
 
-    def get_status(self, current_block: Optional[int] = None) -> RoundStatus:
-        boundaries: Dict[str, Any] = {}
+    def get_status(self, current_block: int | None = None) -> RoundStatus:
+        boundaries: dict[str, Any] = {}
         if self.start_block is not None:
             boundaries = self.get_round_boundaries(self.start_block, log_debug=False)
 
         target_block = boundaries.get("round_target_block")  # Fixed: was "target_block"
-        blocks_remaining: Optional[int] = None
-        minutes_remaining: Optional[float] = None
+        blocks_remaining: int | None = None
+        minutes_remaining: float | None = None
         if current_block is not None and target_block is not None:
             blocks_remaining = max(target_block - current_block, 0)
             minutes_remaining = (blocks_remaining * self.SECONDS_PER_BLOCK) / 60

@@ -27,7 +27,7 @@ if env_file.exists():
                 if key and not key.startswith("#"):
                     os.environ.setdefault(key, value)
 
-from autoppia_web_agents_subnet.validator.reporting.mixin import ReportingMixin  # noqa: E402
+from autoppia_web_agents_subnet.validator.reporting.mixin import ReportingMixin
 
 
 def main():

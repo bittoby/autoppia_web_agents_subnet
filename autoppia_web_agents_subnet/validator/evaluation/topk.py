@@ -1,14 +1,16 @@
 from __future__ import annotations
+
 import hashlib
-from dataclasses import dataclass
-from typing import Iterable, List, Dict, Tuple, Any
-from collections import Counter, defaultdict
 import math
+from collections import Counter, defaultdict
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 # Optional: pip install datasketch networkx
 try:
-    from datasketch import MinHash, MinHashLSH
     import networkx as nx
+    from datasketch import MinHash, MinHashLSH
 
     HAS_DATASKETCH = True
 except ImportError:
@@ -20,7 +22,7 @@ except ImportError:
 # =========================
 
 
-def _norm_text_bucket(text: str | None) -> Tuple[str, str]:
+def _norm_text_bucket(text: str | None) -> tuple[str, str]:
     if not text:
         return ("len_0", "pat_none")
     t = text.strip().lower()
@@ -132,17 +134,16 @@ def canonical_token(action) -> str:
         else:
             wbin = "w:2s_plus"
         extra.append(wbin)
-    if a_type == "selectaction":
+    if a_type == "selectaction" and isinstance(value, str) and value:
         # value puede ser índice/texto; lo bucketizamos por hash corto
-        if isinstance(value, str) and value:
-            extra.append("selv:" + hashlib.sha1(value.lower().strip().encode()).hexdigest()[:6])
+        extra.append("selv:" + hashlib.sha1(value.lower().strip().encode()).hexdigest()[:6])
 
-    base = "|".join([a_type, sel_tok, t_bucket, t_pat, url_tok, dir_tok, xy_tok] + extra)
+    base = "|".join([a_type, sel_tok, t_bucket, t_pat, url_tok, dir_tok, xy_tok, *extra])
     # token final corto (pero estable)
     return hashlib.sha1(base.encode()).hexdigest()[:12]
 
 
-def canonical_sequence(solution) -> List[str]:
+def canonical_sequence(solution) -> list[str]:
     return [canonical_token(a) for a in solution.actions]
 
 
@@ -151,7 +152,7 @@ def canonical_sequence(solution) -> List[str]:
 # =========================
 
 
-def shingles(tokens: List[str], k: int = 4) -> List[str]:
+def shingles(tokens: list[str], k: int = 4) -> list[str]:
     if len(tokens) < k:
         return ["|".join(tokens)]
     return ["|".join(tokens[i : i + k]) for i in range(len(tokens) - k + 1)]
@@ -167,10 +168,10 @@ def minhash_signature(shingle_set: Iterable[str], num_perm: int = 128):
     return m
 
 
-def seq_hash_embed(tokens: List[str], dim: int = 256) -> List[float]:
+def seq_hash_embed(tokens: list[str], dim: int = 256) -> list[float]:
     # Embedding ligero por hashing (sin entrenar): estable y barato.
     vec = [0.0] * dim
-    for i, tk in enumerate(tokens):
+    for _i, tk in enumerate(tokens):
         h = int(hashlib.blake2b(tk.encode(), digest_size=8).hexdigest(), 16)
         idx = h % dim
         vec[idx] += 1.0
@@ -179,11 +180,11 @@ def seq_hash_embed(tokens: List[str], dim: int = 256) -> List[float]:
     return [x / norm for x in vec]
 
 
-def cosine(a: List[float], b: List[float]) -> float:
-    return sum(x * y for x, y in zip(a, b))
+def cosine(a: list[float], b: list[float]) -> float:
+    return sum(x * y for x, y in zip(a, b, strict=False))
 
 
-def weighted_edit_similarity(a: List[str], b: List[str]) -> float:
+def weighted_edit_similarity(a: list[str], b: list[str]) -> float:
     # distancia de edición con coste bajo cuando tokens iguales; alto si distintos.
     # Implementación simple O(n*m) suficiente para candidatos.
     n, m = len(a), len(b)
@@ -208,7 +209,7 @@ def weighted_edit_similarity(a: List[str], b: List[str]) -> float:
     return max(0.0, 1.0 - dist / (1.2 * max_len))
 
 
-def behavior_stats(tokens: List[str]) -> List[float]:
+def behavior_stats(tokens: list[str]) -> list[float]:
     # Contamos "familias" de tokens decodificando prefijo de tipo (guardado en el token original no está;
     # truco: volvemos a obtener familias aproximando por hash buckets del token)
     # Alternativa: extraer de acciones reales antes de canonizar; si no, usamos n-gram counts.
@@ -223,11 +224,11 @@ def behavior_stats(tokens: List[str]) -> List[float]:
 @dataclass
 class SolutionFingerprint:
     task_id: str
-    tokens: List[str]
-    shingles: List[str]
+    tokens: list[str]
+    shingles: list[str]
     minhash: Any  # MinHash or None
-    embed: List[float]
-    stats: List[float]
+    embed: list[float]
+    stats: list[float]
 
 
 def fingerprint_solution(sol) -> SolutionFingerprint:
@@ -266,7 +267,7 @@ def pair_similarity(fpA: SolutionFingerprint, fpB: SolutionFingerprint) -> float
     return 0.30 * jac + 0.35 * cos + 0.25 * edit + 0.10 * st
 
 
-def aggregate_by_miner(similarities_same_task: List[float]) -> float:
+def aggregate_by_miner(similarities_same_task: list[float]) -> float:
     # mediana robusta
     if not similarities_same_task:
         return 0.0
@@ -287,14 +288,14 @@ class CandidateIndex:
             self.lsh = MinHashLSH(threshold=threshold, num_perm=num_perm, params=(bands, rows))
         else:
             self.lsh = None
-        self._store: Dict[str, SolutionFingerprint] = {}
+        self._store: dict[str, SolutionFingerprint] = {}
 
     def add(self, key: str, fp: SolutionFingerprint):
         if self.lsh is not None and fp.minhash is not None:
             self.lsh.insert(key, fp.minhash)
         self._store[key] = fp
 
-    def query_candidates(self, fp: SolutionFingerprint) -> List[Tuple[str, SolutionFingerprint]]:
+    def query_candidates(self, fp: SolutionFingerprint) -> list[tuple[str, SolutionFingerprint]]:
         if self.lsh is not None and fp.minhash is not None:
             keys = self.lsh.query(fp.minhash)
             return [(k, self._store[k]) for k in keys]
@@ -303,7 +304,7 @@ class CandidateIndex:
             return list(self._store.items())
 
 
-def cluster_miners(miner_ids: List[str], S: Dict[Tuple[str, str], float], tau: float = 0.85):
+def cluster_miners(miner_ids: list[str], S: dict[tuple[str, str], float], tau: float = 0.85):
     if not HAS_DATASKETCH:
         # Fallback simple: agrupa por similitud directa
         clusters = []
@@ -338,7 +339,7 @@ def cluster_miners(miner_ids: List[str], S: Dict[Tuple[str, str], float], tau: f
 # =========================
 
 
-def compare_solutions(solutions: List[Any], min_shared_tasks: int = 6, tau: float = 0.85) -> Dict[str, List[str]]:
+def compare_solutions(solutions: list[Any], min_shared_tasks: int = 6, tau: float = 0.85) -> dict[str, list[str]]:
     """
     Compara soluciones y devuelve clusters de miners similares.
 
@@ -351,7 +352,7 @@ def compare_solutions(solutions: List[Any], min_shared_tasks: int = 6, tau: floa
         Dict con miner_id -> lista de miners en el mismo cluster
     """
     # Crear fingerprints por solución
-    fps_by_miner_task: Dict[Tuple[str, str], SolutionFingerprint] = {}
+    fps_by_miner_task: dict[tuple[str, str], SolutionFingerprint] = {}
     index = CandidateIndex(threshold=0.60, num_perm=128, bands=32, rows=4)
 
     for sol in solutions:
@@ -361,14 +362,14 @@ def compare_solutions(solutions: List[Any], min_shared_tasks: int = 6, tau: floa
         index.add(key, fp)
 
     # Comparar solo pares en la misma tarea
-    pair_sims_agg: Dict[Tuple[str, str], List[float]] = defaultdict(list)
+    pair_sims_agg: dict[tuple[str, str], list[float]] = defaultdict(list)
 
     # Para cada tarea, saca los miners que la resolvieron
     tasks = {}
     for (miner, task), fp in fps_by_miner_task.items():
         tasks.setdefault(task, []).append((miner, fp))
 
-    for task_id, lst in tasks.items():
+    for _task_id, lst in tasks.items():
         # Comparar todos los pares en la misma tarea
         for i, (mi, fpi) in enumerate(lst):
             for mj, fpj in lst[i + 1 :]:
@@ -377,7 +378,7 @@ def compare_solutions(solutions: List[Any], min_shared_tasks: int = 6, tau: floa
                 pair_sims_agg[key].append(s)
 
     # Agregar por pareja de miners y decidir clones
-    final_S: Dict[Tuple[str, str], float] = {}
+    final_S: dict[tuple[str, str], float] = {}
     for pair, sims in pair_sims_agg.items():
         if len(sims) >= min_shared_tasks:
             final_S[pair] = aggregate_by_miner(sims)
@@ -408,9 +409,9 @@ def get_similarity_score(sol1: Any, sol2: Any) -> float:
     """
     # Ensure we can pass a task_id for fingerprinting stability; use a default if missing
     if not hasattr(sol1, "task_id"):
-        setattr(sol1, "task_id", "_task")
+        sol1.task_id = "_task"
     if not hasattr(sol2, "task_id"):
-        setattr(sol2, "task_id", "_task")
+        sol2.task_id = "_task"
     fp1 = fingerprint_solution(sol1)
     fp2 = fingerprint_solution(sol2)
     return pair_similarity(fp1, fp2)

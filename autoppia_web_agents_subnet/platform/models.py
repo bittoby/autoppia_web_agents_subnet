@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
-def _drop_nones(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _drop_nones(payload: dict[str, Any]) -> dict[str, Any]:
     """Remove keys with None values to keep payloads compact."""
     return {key: value for key, value in payload.items() if value is not None}
 
@@ -13,9 +13,9 @@ def _drop_nones(payload: Dict[str, Any]) -> Dict[str, Any]:
 class ValidatorIdentityIWAP:
     uid: int
     hotkey: str
-    coldkey: Optional[str] = None
+    coldkey: str | None = None
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         return _drop_nones(asdict(self))
 
 
@@ -24,16 +24,16 @@ class ValidatorSnapshotIWAP:
     validator_round_id: str
     validator_uid: int
     validator_hotkey: str
-    validator_coldkey: Optional[str] = None
-    name: Optional[str] = None
-    stake: Optional[float] = None
-    vtrust: Optional[float] = None
-    image_url: Optional[str] = None
-    version: Optional[str] = None
+    validator_coldkey: str | None = None
+    name: str | None = None
+    stake: float | None = None
+    vtrust: float | None = None
+    image_url: str | None = None
+    version: str | None = None
     role: str = "primary"
-    validator_config: Dict[str, Any] = field(default_factory=dict)
+    validator_config: dict[str, Any] = field(default_factory=dict)
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         data = asdict(self)
         # Ensure validator_config is included even if empty
         data["validator_config"] = self.validator_config or {}
@@ -47,7 +47,7 @@ class ValidatorRoundIWAP:
     round_number_in_season: int
     validator_uid: int
     validator_hotkey: str
-    validator_coldkey: Optional[str]
+    validator_coldkey: str | None
     start_block: int
     start_epoch: float
     max_epochs: int
@@ -57,16 +57,16 @@ class ValidatorRoundIWAP:
     n_winners: int
     status: str = "active"
     started_at: float = field(default_factory=float)
-    end_block: Optional[int] = None
-    end_epoch: Optional[float] = None
-    ended_at: Optional[float] = None
-    elapsed_sec: Optional[float] = None
-    average_score: Optional[float] = None
-    top_score: Optional[float] = None
-    summary: Dict[str, int] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    end_block: int | None = None
+    end_epoch: float | None = None
+    ended_at: float | None = None
+    elapsed_sec: float | None = None
+    average_score: float | None = None
+    top_score: float | None = None
+    summary: dict[str, int] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         data = asdict(self)
         data["summary"] = self.summary or {}
         data["metadata"] = self.metadata or {}
@@ -75,33 +75,33 @@ class ValidatorRoundIWAP:
 
 @dataclass
 class MinerIdentityIWAP:
-    uid: Optional[int]
-    hotkey: Optional[str]
-    coldkey: Optional[str] = None
-    agent_key: Optional[str] = None
+    uid: int | None
+    hotkey: str | None
+    coldkey: str | None = None
+    agent_key: str | None = None
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         return _drop_nones(asdict(self))
 
 
 @dataclass
 class MinerSnapshotIWAP:
     validator_round_id: str
-    miner_uid: Optional[int]
-    miner_hotkey: Optional[str]
-    miner_coldkey: Optional[str]
-    agent_key: Optional[str]
+    miner_uid: int | None
+    miner_hotkey: str | None
+    miner_coldkey: str | None
+    agent_key: str | None
     agent_name: str
-    image_url: Optional[str] = None
-    github_url: Optional[str] = None
-    provider: Optional[str] = None
-    description: Optional[str] = None
+    image_url: str | None = None
+    github_url: str | None = None
+    provider: str | None = None
+    description: str | None = None
     is_sota: bool = False
-    first_seen_at: Optional[float] = None
-    last_seen_at: Optional[float] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    first_seen_at: float | None = None
+    last_seen_at: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         data = asdict(self)
         data["metadata"] = self.metadata or {}
         return _drop_nones(data)
@@ -114,24 +114,24 @@ class TaskIWAP:
     is_web_real: bool
     url: str
     prompt: str
-    specifications: Dict[str, Any]
-    tests: List[Dict[str, Any]]
-    use_case: Dict[str, Any]
-    web_project_id: Optional[str] = None
-    web_version: Optional[str] = None
+    specifications: dict[str, Any]
+    tests: list[dict[str, Any]]
+    use_case: dict[str, Any]
+    web_project_id: str | None = None
+    web_version: str | None = None
 
-    def to_payload(self) -> Dict[str, Any]:
-        from datetime import datetime, date, time as datetime_time
+    def to_payload(self) -> dict[str, Any]:
+        from datetime import date, datetime, time as datetime_time
 
         def make_json_serializable(obj):
             """Convert non-JSON-serializable objects to JSON-compatible types"""
-            if isinstance(obj, (datetime, date)):
+            if isinstance(obj, datetime | date):
                 return obj.isoformat()
             if isinstance(obj, datetime_time):
                 return obj.isoformat()
             if isinstance(obj, dict):
                 return {k: make_json_serializable(v) for k, v in obj.items()}
-            if isinstance(obj, (list, tuple)):
+            if isinstance(obj, list | tuple):
                 return [make_json_serializable(item) for item in obj]
             return obj
 
@@ -149,27 +149,27 @@ class AgentRunIWAP:
     validator_round_id: str
     validator_uid: int
     validator_hotkey: str
-    miner_uid: Optional[int]
-    miner_hotkey: Optional[str]
+    miner_uid: int | None
+    miner_hotkey: str | None
     is_sota: bool
-    version: Optional[str]
+    version: str | None
     started_at: float
-    ended_at: Optional[float] = None
-    elapsed_sec: Optional[float] = None
-    average_score: Optional[float] = None
-    average_execution_time: Optional[float] = None
-    average_reward: Optional[float] = None
-    total_reward: Optional[float] = None
+    ended_at: float | None = None
+    elapsed_sec: float | None = None
+    average_score: float | None = None
+    average_execution_time: float | None = None
+    average_reward: float | None = None
+    total_reward: float | None = None
     total_tasks: int = 0
     completed_tasks: int = 0
     failed_tasks: int = 0
-    rank: Optional[int] = None
-    weight: Optional[float] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    rank: int | None = None
+    weight: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     # Reason for score 0 when applicable (e.g. task_timeout, over_cost_limit); copied from source when reused
-    zero_reason: Optional[str] = None
+    zero_reason: str | None = None
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         data = asdict(self)
         data["metadata"] = self.metadata or {}
         return _drop_nones(data)
@@ -183,13 +183,13 @@ class TaskSolutionIWAP:
     validator_round_id: str
     validator_uid: int
     validator_hotkey: str
-    miner_uid: Optional[int]
-    miner_hotkey: Optional[str]
-    actions: List[Dict[str, Any]]
-    recording: Optional[Any] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    miner_uid: int | None
+    miner_hotkey: str | None
+    actions: list[dict[str, Any]]
+    recording: Any | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         data = asdict(self)
         data["metadata"] = self.metadata or {}
         return _drop_nones(data)
@@ -204,22 +204,22 @@ class EvaluationResultIWAP:
     task_solution_id: str
     validator_uid: int
     validator_hotkey: str  # Required field for Evaluation model
-    miner_uid: Optional[int]
+    miner_uid: int | None
     eval_score: float  # Pure evaluation quality score (tests/actions only, 0-1)
     reward: float  # Final task reward used by consensus (eval_score + time/cost shaping + penalties)
-    test_results: List[Dict[str, Any]] = field(default_factory=list)  # Simplified from matrix to list
-    execution_history: List[Dict[str, Any]] = field(default_factory=list)
-    feedback: Optional[Dict[str, Any]] = None
-    evaluation_time: Optional[float] = None
-    stats: Optional[Dict[str, Any]] = None
-    gif_recording: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    test_results: list[dict[str, Any]] = field(default_factory=list)  # Simplified from matrix to list
+    execution_history: list[dict[str, Any]] = field(default_factory=list)
+    feedback: dict[str, Any] | None = None
+    evaluation_time: float | None = None
+    stats: dict[str, Any] | None = None
+    gif_recording: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     # LLM usage tracking (single source of truth)
-    llm_usage: Optional[List[Dict[str, Any]]] = None  # Per-call usage [{provider, model?, tokens?, cost?}]
+    llm_usage: list[dict[str, Any]] | None = None  # Per-call usage [{provider, model?, tokens?, cost?}]
     # Reason for score 0 at evaluation level (e.g. task_timeout, tests_failed)
-    zero_reason: Optional[str] = None
+    zero_reason: str | None = None
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         data = asdict(self)
         # Emit evaluation_score (canonical); drop eval_score from payload
         if "eval_score" in data:
@@ -232,31 +232,31 @@ class EvaluationResultIWAP:
 
 @dataclass
 class RoundWinnerIWAP:
-    miner_uid: Optional[int]
-    miner_hotkey: Optional[str]
+    miner_uid: int | None
+    miner_hotkey: str | None
     rank: int
     reward: float  # Winner reward for the round/season decision; this is not raw eval_score
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         return _drop_nones(asdict(self))
 
 
 @dataclass
 class FinishRoundAgentRunIWAP:
     agent_run_id: str
-    rank: Optional[int] = None
+    rank: int | None = None
     # weight removed - now only in post_consensus_evaluation
     # FASE 1: Nuevos campos
-    miner_name: Optional[str] = None
-    avg_reward: Optional[float] = None  # Local per-validator average reward used as consensus input
-    avg_evaluation_time: Optional[float] = None
-    tasks_attempted: Optional[int] = None
-    tasks_completed: Optional[int] = None
-    tasks_failed: Optional[int] = None
+    miner_name: str | None = None
+    avg_reward: float | None = None  # Local per-validator average reward used as consensus input
+    avg_evaluation_time: float | None = None
+    tasks_attempted: int | None = None
+    tasks_completed: int | None = None
+    tasks_failed: int | None = None
     # Reason for score 0 when applicable (e.g. over_cost_limit, deploy_failed, task_failed)
-    zero_reason: Optional[str] = None
+    zero_reason: str | None = None
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         return _drop_nones(asdict(self))
 
 
@@ -275,14 +275,14 @@ class RoundMetadataIWAP:
     tasks_completed: int
     miners_responded_handshake: int  # miners that answered the round handshake
     miners_evaluated: int  # miners that had at least one task evaluated (appear in rewards)
-    emission: Optional[Dict[str, Any]] = None
+    emission: dict[str, Any] | None = None
     # Round/season config: backend persists to config_season_round table (main validator only) so dashboard uses validator timing
-    round_size_epochs: Optional[float] = None
-    season_size_epochs: Optional[float] = None
-    minimum_start_block: Optional[int] = None
-    blocks_per_epoch: Optional[int] = None
+    round_size_epochs: float | None = None
+    season_size_epochs: float | None = None
+    minimum_start_block: int | None = None
+    blocks_per_epoch: int | None = None
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         return _drop_nones(asdict(self))
 
 
@@ -290,24 +290,24 @@ class RoundMetadataIWAP:
 class FinishRoundIWAP:
     status: str
     ended_at: float
-    summary: Optional[Dict[str, Any]] = None
-    agent_runs: List[FinishRoundAgentRunIWAP] = field(default_factory=list)
+    summary: dict[str, Any] | None = None
+    agent_runs: list[FinishRoundAgentRunIWAP] = field(default_factory=list)
     # FASE 1: Nuevos campos opcionales
-    round_metadata: Optional[RoundMetadataIWAP] = None
-    local_evaluation: Optional[Dict[str, Any]] = None
-    post_consensus_evaluation: Optional[Dict[str, Any]] = None  # Stake-weighted consensus metrics across included validators
-    validator_summary: Optional[Dict[str, Any]] = None
+    round_metadata: RoundMetadataIWAP | None = None
+    local_evaluation: dict[str, Any] | None = None
+    post_consensus_evaluation: dict[str, Any] | None = None  # Stake-weighted consensus metrics across included validators
+    validator_summary: dict[str, Any] | None = None
     # FASE 2: IPFS data
-    ipfs_uploaded: Optional[Dict[str, Any]] = None
-    ipfs_downloaded: Optional[Dict[str, Any]] = None
-    s3_logs_url: Optional[str] = None
-    validator_state: Optional[Dict[str, Any]] = None
+    ipfs_uploaded: dict[str, Any] | None = None
+    ipfs_downloaded: dict[str, Any] | None = None
+    s3_logs_url: str | None = None
+    validator_state: dict[str, Any] | None = None
     # Compatibility fields kept in the payload shape even though current consumers use the richer summaries
-    winners: List[RoundWinnerIWAP] = field(default_factory=list)
-    winner_rewards: List[float] = field(default_factory=list)
-    weights: Dict[str, float] = field(default_factory=dict)
+    winners: list[RoundWinnerIWAP] = field(default_factory=list)
+    winner_rewards: list[float] = field(default_factory=list)
+    weights: dict[str, float] = field(default_factory=dict)
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         payload = {
             "status": self.status,
             "ended_at": self.ended_at,

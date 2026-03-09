@@ -66,10 +66,10 @@ def _run_async(coro: Awaitable[None]) -> None:
         asyncio.run(coro)
     except MinerCliError as exc:
         print_error(str(exc))
-        raise click.exceptions.Exit(1)
+        raise click.exceptions.Exit(1) from exc
     except Exception as exc:
         print_error(f"{type(exc).__name__}: {exc}")
-        raise click.exceptions.Exit(1)
+        raise click.exceptions.Exit(1) from exc
 
 
 @click.group(cls=StyledAliasGroup, invoke_without_command=True)

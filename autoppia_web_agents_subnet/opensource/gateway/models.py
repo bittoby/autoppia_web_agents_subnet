@@ -1,4 +1,3 @@
-from typing import Dict
 from pydantic import BaseModel, Field
 
 
@@ -36,7 +35,7 @@ class ProviderConfig(BaseModel):
 
     name: str
     base_url: str
-    pricing: Dict[str, Dict[str, float]] = Field(default_factory=dict)
+    pricing: dict[str, dict[str, float]] = Field(default_factory=dict)
     # Fallback prices in USD per 1M tokens when model-specific pricing is unknown.
     default_input_price: float = 0.0
     default_output_price: float = 0.0

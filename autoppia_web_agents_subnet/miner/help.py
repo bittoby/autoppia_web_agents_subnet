@@ -173,10 +173,7 @@ class StyledGroup(click.Group):
                 quoted = ", ".join(f"`{alias}`" for alias in sorted(aliases))
                 alias_label = "alias" if len(aliases) == 1 else "aliases"
                 alias_text = f"{alias_label}: {quoted}"
-                if desc:
-                    desc = f"{desc.rstrip('.')}, {alias_text}"
-                else:
-                    desc = alias_text
+                desc = f"{desc.rstrip('.')}, {alias_text}" if desc else alias_text
 
             rows.append((name, desc))
 

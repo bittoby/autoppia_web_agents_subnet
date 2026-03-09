@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import Dict
 
 import bittensor as bt
-
 
 _LOG_PREFIX = "autoppia_web_agents_subnet."
 _BLOATED_BT_LEVELS = {
@@ -32,7 +30,7 @@ _MODULE_ALIASES = {
     "opensource": "opensource",
 }
 
-_FILTER_CACHE: Dict[str, tuple[int | None, bool]] = {}
+_FILTER_CACHE: dict[str, tuple[int | None, bool]] = {}
 
 
 def _coerce_level(raw_level: str | None) -> int | None:
@@ -58,9 +56,9 @@ def _canonical_module_name(module_name: str) -> str:
     return _MODULE_ALIASES.get(normalized, normalized)
 
 
-def _parse_module_levels() -> Dict[str, int]:
+def _parse_module_levels() -> dict[str, int]:
     config_raw = (_canonical_module_name(v) for v in __import__("os").environ.get("LOG_MODULE_LEVELS", "").split(","))
-    settings: Dict[str, int] = {}
+    settings: dict[str, int] = {}
     for item in config_raw:
         token = item.strip()
         if not token:
@@ -109,7 +107,7 @@ def _resolve_caller_module() -> str:
     return ""
 
 
-def _module_matches(module: str, configured: set[str] | Dict[str, int]) -> str | None:
+def _module_matches(module: str, configured: set[str] | dict[str, int]) -> str | None:
     for candidate in sorted(configured, key=len, reverse=True):
         if module == candidate or module.startswith(f"{candidate}."):
             return candidate
@@ -119,7 +117,7 @@ def _module_matches(module: str, configured: set[str] | Dict[str, int]) -> str |
 def _should_emit(
     target_module: str,
     level: int,
-    levels: Dict[str, int],
+    levels: dict[str, int],
     disabled: set[str],
     global_level: int | None,
 ) -> bool:
@@ -153,7 +151,7 @@ def _should_emit(
 class _SubNetStdlibFilter(logging.Filter):
     def __init__(
         self,
-        module_levels: Dict[str, int],
+        module_levels: dict[str, int],
         disabled_modules: set[str],
         global_level: int | None,
     ) -> None:
@@ -194,7 +192,7 @@ def apply_subnet_module_logging_filters(logging_config=None) -> None:
             if not callable(original):
                 continue
 
-            def _wrap(original_fn=original, method_level=level):
+            def _wrap(original_fn=original, method_level=level, method_name=method):
                 def _wrapped(*args, **kwargs):
                     module = _resolve_caller_module()
                     if _should_emit(
@@ -206,7 +204,7 @@ def apply_subnet_module_logging_filters(logging_config=None) -> None:
                     ):
                         return original_fn(*args, **kwargs)
 
-                _wrapped.__name__ = f"autoppia_filtered_{method}"
+                _wrapped.__name__ = f"autoppia_filtered_{method_name}"
                 _wrapped.__doc__ = original_fn.__doc__
                 return _wrapped
 

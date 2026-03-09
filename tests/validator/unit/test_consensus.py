@@ -4,8 +4,9 @@ Unit tests for Consensus module.
 Tests IPFS publishing and score aggregation.
 """
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
 
 
 @pytest.mark.unit
@@ -141,7 +142,7 @@ class TestScoreAggregation:
 
                 from autoppia_web_agents_subnet.validator.settlement.consensus import aggregate_scores_from_commitments
 
-                scores, details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
+                _scores, _details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
 
                 # Should only fetch CIDs for round 5
                 assert mock_get.call_count == 2  # Only hotkey1 and hotkey3
@@ -169,7 +170,7 @@ class TestScoreAggregation:
 
                     from autoppia_web_agents_subnet.validator.settlement.consensus import aggregate_scores_from_commitments
 
-                    scores, details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
+                    _scores, _details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
 
                     # Should only fetch CIDs for hotkey1 and hotkey3 (above threshold)
                     assert mock_get.call_count == 2
@@ -192,7 +193,7 @@ class TestScoreAggregation:
 
                 from autoppia_web_agents_subnet.validator.settlement.consensus import aggregate_scores_from_commitments
 
-                scores, details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
+                scores, _details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
 
                 # Should continue despite failure
                 assert isinstance(scores, dict)
@@ -222,7 +223,7 @@ class TestScoreAggregation:
 
                 from autoppia_web_agents_subnet.validator.settlement.consensus import aggregate_scores_from_commitments
 
-                scores, details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
+                scores, _details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
 
                 # Weighted average: (10000*0.6 + 20000*0.9) / (10000+20000) = 24000/30000 = 0.8
                 assert 1 in scores
@@ -253,7 +254,7 @@ class TestScoreAggregation:
 
                     from autoppia_web_agents_subnet.validator.settlement.consensus import aggregate_scores_from_commitments
 
-                    scores, details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
+                    scores, _details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
 
                     # Simple average: (0.6 + 0.8) / 2 = 0.7
                     assert 1 in scores
@@ -270,7 +271,7 @@ class TestScoreAggregation:
 
             from autoppia_web_agents_subnet.validator.settlement.consensus import aggregate_scores_from_commitments
 
-            scores, details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
+            scores, _details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
 
             assert scores == {}
 
@@ -344,7 +345,7 @@ class TestCommitmentFiltering:
 
                 from autoppia_web_agents_subnet.validator.settlement.consensus import aggregate_scores_from_commitments
 
-                scores, details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
+                scores, _details = await aggregate_scores_from_commitments(dummy_validator, st=Mock())
 
                 # Should skip invalid structure and continue
                 assert isinstance(scores, dict)
