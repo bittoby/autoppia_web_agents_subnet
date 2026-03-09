@@ -21,6 +21,8 @@ Usage:
 
     autoppia-miner-cli payment \
         [--validator <hotkey_ss58>] \
+        [--round <round_number>] \
+        [--season <season_number>] \
         [--wallet.name default] \
         [--wallet.hotkey default] \
         [--subtensor.network finney] \
@@ -147,8 +149,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(show_p)
 
     # -- payment ---------------------------------------------------------------
-    payment_p = sub.add_parser("payment", help="Show payment tracking: paid alpha, consumed alpha, and balance.")
-    payment_p.add_argument("--validator", default=None, help="Validator hotkey SS58 address (reads a specific validator's commitment). If omitted, searches all validators.")
+    payment_p = sub.add_parser(
+        "payment",
+        help="Show per-validator payment status: paid alpha, consumed alpha, and remaining balance.",
+    )
+    payment_p.add_argument("--validator", default=None, help="Validator hotkey SS58 address. If omitted, shows all validators with payment data.")
+    payment_p.add_argument("--round", type=int, default=None, dest="payment_round", help="Inspect a specific round (default: latest available snapshot).")
+    payment_p.add_argument("--season", type=int, default=None, dest="payment_season", help="Inspect a specific season (default: current season).")
     _add_common_args(payment_p)
 
     return parser
@@ -294,8 +301,9 @@ async def _payment(args: argparse.Namespace) -> None:
         with console.status("[bold cyan]Connecting to subtensor...", spinner="dots"):
             current_block = await st.get_current_block()
 
-        season = compute_season(current_block)
+        season = args.payment_season if args.payment_season is not None else compute_season(current_block)
         cur_round = compute_current_round(current_block, season)
+        requested_round = args.payment_round  # None means latest available
 
         console.print(Panel(
             _chain_info_table(current_block, season, cur_round),
@@ -303,21 +311,19 @@ async def _payment(args: argparse.Namespace) -> None:
             border_style="blue",
         ))
 
-        # Read validator commitment(s) to find payment data
+        # Read validator commitment(s)
         validator_hotkey = (args.validator or "").strip()
 
         with console.status("[bold cyan]Reading validator commitment(s)...", spinner="dots"):
             if validator_hotkey:
-                # Read a specific validator's commitment
                 commitment = await read_plain_commitment(
                     st, netuid=args.netuid, hotkey_ss58=validator_hotkey,
                 )
                 if commitment is None or not isinstance(commitment, dict):
-                    _error(f"No commitment found for validator {validator_hotkey[:16]}...")
+                    _error(f"No on-chain commitment found for validator {validator_hotkey[:16]}...")
                     sys.exit(1)
                 target_commits = {validator_hotkey: commitment}
             else:
-                # Read all commitments and find ones with payment data
                 all_commits = await read_all_plain_commitments(st, netuid=args.netuid, block=None)
                 target_commits = {}
                 for hk, entry in (all_commits or {}).items():
@@ -328,59 +334,80 @@ async def _payment(args: argparse.Namespace) -> None:
             _error("No validator commitments found on-chain.")
             sys.exit(1)
 
-        # Fetch IPFS payloads to find payment data
-        from autoppia_web_agents_subnet.utils.ipfs_client import get_json_async
-        from autoppia_web_agents_subnet.validator.config import IPFS_API_URL
-
-        payment_data_found = False
-
-        # Prefer the last round's commitment (most recent payment data).
-        # Validators commit at the end of each round, so the current round
-        # may not have data yet — fall back to the previous round.
-        last_round = max(1, cur_round - 1)
+        # Filter by season/round
+        filtered: dict[str, dict] = {}
+        skipped_season = 0
+        skipped_round = 0
+        skipped_no_cid = 0
 
         for hk, entry in target_commits.items():
             cid = entry.get("c") if isinstance(entry, dict) else None
             if not cid:
+                skipped_no_cid += 1
                 continue
-
-            # Skip commitments that are not from the current or last round
             try:
-                entry_round = int(entry.get("r", -1))
                 entry_season = int(entry.get("s", -1))
+                entry_round = int(entry.get("r", -1))
             except (TypeError, ValueError):
                 continue
             if entry_season != season:
+                skipped_season += 1
                 continue
-            if entry_round not in (cur_round, last_round):
+            if requested_round is not None and entry_round != requested_round:
+                skipped_round += 1
                 continue
+            filtered[hk] = entry
+
+        if not filtered:
+            parts = [f"season {season}"]
+            if requested_round is not None:
+                parts.append(f"round {requested_round}")
+            _error(
+                f"No validator commitments match {', '.join(parts)}. "
+                f"(checked {len(target_commits)} commitment(s): "
+                f"{skipped_season} wrong season, {skipped_round} wrong round, {skipped_no_cid} missing CID)"
+            )
+            sys.exit(1)
+
+        # Fetch IPFS payloads and collect payment results
+        from autoppia_web_agents_subnet.utils.ipfs_client import get_json_async
+        from autoppia_web_agents_subnet.validator.config import IPFS_API_URL
+
+        rao_per_alpha = 10**9
+        results: list[dict] = []
+        ipfs_failures = 0
+        no_payment_data = 0
+
+        for hk, entry in filtered.items():
+            cid = entry["c"]
+            entry_round = int(entry.get("r", -1))
+            entry_season = int(entry.get("s", -1))
 
             try:
                 with console.status(f"[bold cyan]Fetching IPFS payload from {hk[:16]}...", spinner="dots"):
                     payload, _, _ = await get_json_async(cid, api_url=IPFS_API_URL)
             except Exception as exc:
-                _warn(f"Failed to fetch IPFS payload for {hk[:16]}...: {exc}")
+                _warn(f"IPFS fetch failed for validator {hk[:16]}...: {exc}")
+                ipfs_failures += 1
                 continue
 
             if not isinstance(payload, dict):
                 continue
 
-            # Extract payment data
             consumed_map = payload.get("consumed_evals_by_coldkey", {})
             paid_rao_map = payload.get("paid_rao_by_coldkey", {})
             payment_config = payload.get("payment_config", {})
 
             if not consumed_map and not paid_rao_map:
+                no_payment_data += 1
                 continue
 
-            payment_data_found = True
             alpha_per_eval = float(payment_config.get("alpha_per_eval", 0))
             payment_wallet = payment_config.get("payment_wallet_ss58", "N/A")
+            last_scanned_block = payment_config.get("last_scanned_block")
 
             consumed_evals = int(consumed_map.get(miner_coldkey, 0) or 0)
             paid_rao = int(paid_rao_map.get(miner_coldkey, 0) or 0)
-
-            rao_per_alpha = 10**9
             paid_alpha = paid_rao / rao_per_alpha
             consumed_alpha = consumed_evals * alpha_per_eval if alpha_per_eval > 0 else 0.0
 
@@ -389,36 +416,89 @@ async def _payment(args: argparse.Namespace) -> None:
                 allowed_evals = paid_rao // rao_per_eval if rao_per_eval > 0 else 0
                 remaining_evals = max(0, allowed_evals - consumed_evals)
                 balance_alpha = remaining_evals * alpha_per_eval
+                payment_mode = "enabled"
             else:
-                allowed_evals = 999_999
                 remaining_evals = 999_999
-                balance_alpha = float("inf")
+                balance_alpha = 0.0
+                payment_mode = "disabled (unlimited)"
 
-            # Build display table
-            validator_uid = payload.get("validator_uid", payload.get("uid", "?"))
+            results.append({
+                "hk": hk,
+                "uid": payload.get("validator_uid", payload.get("uid", "?")),
+                "round": entry_round,
+                "season": entry_season,
+                "payment_wallet": payment_wallet,
+                "alpha_per_eval": alpha_per_eval,
+                "paid_rao": paid_rao,
+                "paid_alpha": paid_alpha,
+                "consumed_evals": consumed_evals,
+                "consumed_alpha": consumed_alpha,
+                "remaining_evals": remaining_evals,
+                "balance_alpha": balance_alpha,
+                "payment_mode": payment_mode,
+                "last_scanned_block": last_scanned_block,
+            })
+
+        if not results:
+            parts = []
+            if ipfs_failures:
+                parts.append(f"{ipfs_failures} IPFS fetch failure(s)")
+            if no_payment_data:
+                parts.append(f"{no_payment_data} validator(s) have no payment data in their snapshot")
+            detail = "; ".join(parts) if parts else "no matching validators"
+            _warn(f"No payment data found for miner {miner_coldkey[:16]}...: {detail}")
+            return
+
+        # Summary table
+        summary = Table(title=f"Payment Status for {miner_coldkey[:16]}...", border_style="green")
+        summary.add_column("Validator", style="bold")
+        summary.add_column("UID")
+        summary.add_column("R", justify="right")
+        summary.add_column("Paid Alpha", justify="right", style="green")
+        summary.add_column("Consumed", justify="right", style="yellow")
+        summary.add_column("Remaining", justify="right", style="cyan")
+        summary.add_column("Mode")
+
+        for r in results:
+            if r["payment_mode"] == "disabled (unlimited)":
+                remaining_str = "unlimited"
+            else:
+                remaining_str = f"{r['balance_alpha']:.4f} ({r['remaining_evals']} evals)"
+
+            summary.add_row(
+                f"{r['hk'][:16]}...",
+                str(r["uid"]),
+                str(r["round"]),
+                f"{r['paid_alpha']:.4f}",
+                f"{r['consumed_alpha']:.4f} ({r['consumed_evals']} evals)",
+                remaining_str,
+                r["payment_mode"],
+            )
+
+        console.print(summary)
+
+        # Detailed panels per validator
+        for r in results:
             table = Table(show_header=False, border_style="dim", pad_edge=False, box=None)
             table.add_column("Field", style="bold")
             table.add_column("Value")
-            table.add_row("Validator hotkey", f"{hk[:16]}...")
-            table.add_row("Validator UID", str(validator_uid))
-            table.add_row("Round", str(entry_round))
-            table.add_row("Season", str(entry_season))
-            table.add_row("Payment wallet", str(payment_wallet))
-            table.add_row("Alpha per eval", f"{alpha_per_eval:.2f}")
+            table.add_row("Validator hotkey", f"{r['hk'][:16]}...")
+            table.add_row("Validator UID", str(r["uid"]))
+            table.add_row("Round", str(r["round"]))
+            table.add_row("Season", str(r["season"]))
+            table.add_row("Payment wallet", str(r["payment_wallet"]))
+            table.add_row("Alpha per eval", f"{r['alpha_per_eval']:.2f}")
+            if r["last_scanned_block"] is not None:
+                table.add_row("Last scanned block", f"{int(r['last_scanned_block']):,}")
             table.add_row("", "")
-            table.add_row("Miner coldkey", f"{miner_coldkey[:16]}...")
-            table.add_row("[bold green]Paid alpha[/bold green]", f"[bold green]{paid_alpha:.4f}[/bold green] ({paid_rao:,} rao)")
-            table.add_row("[bold yellow]Consumed alpha[/bold yellow]", f"[bold yellow]{consumed_alpha:.4f}[/bold yellow] ({consumed_evals} evals)")
-            table.add_row("[bold cyan]Balance (alpha)[/bold cyan]", f"[bold cyan]{balance_alpha:.4f}[/bold cyan] ({remaining_evals} evals remaining)")
+            table.add_row("[bold green]Paid alpha[/bold green]", f"[bold green]{r['paid_alpha']:.4f}[/bold green] ({r['paid_rao']:,} rao)")
+            table.add_row("[bold yellow]Consumed alpha[/bold yellow]", f"[bold yellow]{r['consumed_alpha']:.4f}[/bold yellow] ({r['consumed_evals']} evals)")
+            if r["payment_mode"] == "disabled (unlimited)":
+                table.add_row("[bold cyan]Remaining evals[/bold cyan]", "[bold cyan]unlimited[/bold cyan] (payment disabled)")
+            else:
+                table.add_row("[bold cyan]Balance (alpha)[/bold cyan]", f"[bold cyan]{r['balance_alpha']:.4f}[/bold cyan] ({r['remaining_evals']} evals remaining)")
 
-            console.print(Panel(table, title="Payment Status", border_style="green"))
-            break  # Show first validator with data
-
-        if not payment_data_found:
-            _warn(
-                f"No payment tracking data found for miner {miner_coldkey[:16]}... "
-                "in any validator commitment. The validator may not have published payment data yet."
-            )
+            console.print(Panel(table, title=f"Validator {r['hk'][:16]}...", border_style="green"))
 
 
 def _commitment_detail_table(data: dict) -> Table:
