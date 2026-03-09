@@ -294,19 +294,19 @@ def _summary_snapshot_from_run(uid: Optional[int], run_payload: Optional[Dict[st
     }
     if isinstance(run_payload, dict):
         try:
-            snapshot["reward"] = float(run_payload.get("reward", 0.0) or 0.0)
+            snapshot["reward"] = round(float(run_payload.get("reward", 0.0) or 0.0), 4)
         except Exception:
             pass
         try:
-            snapshot["score"] = float(run_payload.get("score", 0.0) or 0.0)
+            snapshot["score"] = round(float(run_payload.get("score", 0.0) or 0.0), 4)
         except Exception:
             pass
         try:
-            snapshot["time"] = float(run_payload.get("time", 0.0) or 0.0)
+            snapshot["time"] = round(float(run_payload.get("time", 0.0) or 0.0), 4)
         except Exception:
             pass
         try:
-            snapshot["cost"] = float(run_payload.get("cost", 0.0) or 0.0)
+            snapshot["cost"] = round(float(run_payload.get("cost", 0.0) or 0.0), 4)
         except Exception:
             pass
     if weight is not None:

@@ -1350,6 +1350,38 @@ async def finish_round_flow(
             season_number=int(season_number_for_summary or 0),
             round_number_in_season=int(round_number_for_summary or 0),
         )
+        best_run_by_uid = {
+            int(miner_payload.get("uid")): dict(miner_payload.get("best_run_consensus") or {})
+            for miner_payload in post_consensus_miners
+            if isinstance(miner_payload, dict) and miner_payload.get("uid") is not None
+        }
+
+        def _canonical_summary_snapshot(existing: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+            if not isinstance(existing, dict):
+                return None
+            try:
+                snapshot_uid = int(existing.get("uid"))
+            except Exception:
+                return dict(existing)
+            best_run = best_run_by_uid.get(snapshot_uid)
+            if not isinstance(best_run, dict):
+                return dict(existing)
+            return {
+                "uid": snapshot_uid,
+                "reward": float(best_run.get("reward", existing.get("reward", 0.0)) or 0.0),
+                "score": float(best_run.get("score", existing.get("score", 0.0)) or 0.0),
+                "time": float(best_run.get("time", existing.get("time", 0.0)) or 0.0),
+                "cost": float(best_run.get("cost", existing.get("cost", 0.0)) or 0.0),
+                **({"weight": float(best_run.get("weight"))} if best_run.get("weight") is not None else {}),
+            }
+
+        if isinstance(post_consensus_json_summary, dict):
+            post_consensus_json_summary = {
+                **post_consensus_json_summary,
+                "leader_before_round": _canonical_summary_snapshot(post_consensus_json_summary.get("leader_before_round")),
+                "candidate_this_round": _canonical_summary_snapshot(post_consensus_json_summary.get("candidate_this_round")),
+                "leader_after_round": _canonical_summary_snapshot(post_consensus_json_summary.get("leader_after_round")),
+            }
 
         post_consensus_evaluation = {
             "season": int(season_number_for_summary or 0),
