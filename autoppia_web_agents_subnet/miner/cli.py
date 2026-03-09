@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import datetime, timezone
 
 import bittensor as bt
 from rich.console import Console
@@ -405,6 +406,16 @@ async def _payment(args: argparse.Namespace) -> None:
             alpha_per_eval = float(payment_config.get("alpha_per_eval", 0))
             payment_wallet = payment_config.get("payment_wallet_ss58", "N/A")
             last_scanned_block = payment_config.get("last_scanned_block")
+            cache_updated_at_unix = payment_config.get("cache_updated_at_unix")
+
+            cache_updated_label = None
+            try:
+                if cache_updated_at_unix is not None:
+                    cache_updated_label = datetime.fromtimestamp(
+                        int(cache_updated_at_unix), tz=timezone.utc,
+                    ).strftime("%Y-%m-%d %H:%M:%S UTC")
+            except Exception:
+                cache_updated_label = None
 
             consumed_evals = int(consumed_map.get(miner_coldkey, 0) or 0)
             paid_rao = int(paid_rao_map.get(miner_coldkey, 0) or 0)
@@ -437,6 +448,7 @@ async def _payment(args: argparse.Namespace) -> None:
                 "balance_alpha": balance_alpha,
                 "payment_mode": payment_mode,
                 "last_scanned_block": last_scanned_block,
+                "cache_updated_label": cache_updated_label,
             })
 
         if not results:
@@ -490,6 +502,8 @@ async def _payment(args: argparse.Namespace) -> None:
             table.add_row("Alpha per eval", f"{r['alpha_per_eval']:.2f}")
             if r["last_scanned_block"] is not None:
                 table.add_row("Last scanned block", f"{int(r['last_scanned_block']):,}")
+            if r["cache_updated_label"]:
+                table.add_row("Cache updated", r["cache_updated_label"])
             table.add_row("", "")
             table.add_row("[bold green]Paid alpha[/bold green]", f"[bold green]{r['paid_alpha']:.4f}[/bold green] ({r['paid_rao']:,} rao)")
             table.add_row("[bold yellow]Consumed alpha[/bold yellow]", f"[bold yellow]{r['consumed_alpha']:.4f}[/bold yellow] ({r['consumed_evals']} evals)")

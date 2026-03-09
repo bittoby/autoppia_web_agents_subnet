@@ -5,6 +5,7 @@ Tests IPFS publishing and score aggregation.
 """
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import Mock, AsyncMock, patch
 from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
 
@@ -14,102 +15,134 @@ from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
 class TestIPFSPublishing:
     """Test IPFS publishing logic."""
 
-    async def test_publish_round_snapshot_creates_correct_payload(self, dummy_validator):
-        """Test that publish_round_snapshot creates payload with correct structure."""
+    @staticmethod
+    def _configure_validator(dummy_validator):
         dummy_validator._get_async_subtensor = AsyncMock(return_value=Mock())
         dummy_validator.wallet = Mock()
         dummy_validator.wallet.hotkey.ss58_address = "test_hotkey"
         dummy_validator.current_round_id = "round-1"
         dummy_validator.version = "1.0.0"
-        
+        dummy_validator.config = SimpleNamespace(netuid=36)
+        dummy_validator.season_manager = Mock()
+        dummy_validator.season_manager.get_season_start_block = Mock(return_value=900)
+        dummy_validator.season_manager.season_block_length = 1000
+        dummy_validator.subtensor = Mock()
+        dummy_validator.subtensor.get_current_block = Mock(return_value=1234)
+        return dummy_validator
+
+    async def test_publish_round_snapshot_creates_correct_payload(self, dummy_validator):
+        """Test that publish_round_snapshot creates payload with correct structure."""
+        dummy_validator = self._configure_validator(dummy_validator)
+
         scores = {1: 0.8, 2: 0.6}
-        
+
         with patch('autoppia_web_agents_subnet.validator.settlement.consensus.add_json_async') as mock_add:
             with patch('autoppia_web_agents_subnet.validator.settlement.consensus.write_plain_commitment_json') as mock_write:
-                with patch('autoppia_web_agents_subnet.validator.settlement.consensus.ENABLE_DISTRIBUTED_CONSENSUS', True):
-                    mock_add.return_value = ("QmTest123", "sha256hex", 1024)
-                    mock_write.return_value = True
-                    
-                    from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
-                    cid = await publish_round_snapshot(dummy_validator, st=Mock(), scores=scores)
-                    
-                    # Should have called add_json_async with payload
-                    mock_add.assert_called_once()
-                    payload = mock_add.call_args[0][0]
-                    
-                    from autoppia_web_agents_subnet.validator.config import CONSENSUS_VERSION
-                    assert payload['v'] == CONSENSUS_VERSION
-                    assert 'r' in payload
-                    assert payload['scores'] == scores
-                    assert payload['hk'] == "test_hotkey"
+                mock_add.return_value = ("QmTest123", "sha256hex", 1024)
+                mock_write.return_value = True
+
+                from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
+                cid = await publish_round_snapshot(dummy_validator, st=Mock(), scores=scores)
+
+                assert cid == "QmTest123"
+                mock_add.assert_called_once()
+                payload = mock_add.call_args[0][0]
+
+                from autoppia_web_agents_subnet.validator.config import CONSENSUS_VERSION
+                assert payload['v'] == CONSENSUS_VERSION
+                assert 'r' in payload
+                assert payload['scores'] == scores
+                assert payload['hk'] == "test_hotkey"
 
     async def test_publishing_returns_cid_on_success(self, dummy_validator):
         """Test that publishing returns CID when successful."""
-        dummy_validator._get_async_subtensor = AsyncMock(return_value=Mock())
-        dummy_validator.wallet = Mock()
-        dummy_validator.wallet.hotkey.ss58_address = "test_hotkey"
-        
+        dummy_validator = self._configure_validator(dummy_validator)
+
         with patch('autoppia_web_agents_subnet.validator.settlement.consensus.add_json_async') as mock_add:
             with patch('autoppia_web_agents_subnet.validator.settlement.consensus.write_plain_commitment_json') as mock_write:
-                with patch('autoppia_web_agents_subnet.validator.settlement.consensus.ENABLE_DISTRIBUTED_CONSENSUS', True):
-                    mock_add.return_value = ("QmTest123", "sha256hex", 1024)
-                    mock_write.return_value = True
-                    
-                    from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
-                    cid = await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
-                    
-                    assert cid == "QmTest123"
+                mock_add.return_value = ("QmTest123", "sha256hex", 1024)
+                mock_write.return_value = True
+
+                from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
+                cid = await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
+
+                assert cid == "QmTest123"
 
     async def test_publishing_returns_none_on_ipfs_failure(self, dummy_validator):
         """Test that publishing returns None when IPFS upload fails."""
-        dummy_validator._get_async_subtensor = AsyncMock(return_value=Mock())
-        dummy_validator.wallet = Mock()
-        dummy_validator.wallet.hotkey.ss58_address = "test_hotkey"
-        
+        dummy_validator = self._configure_validator(dummy_validator)
+
         with patch('autoppia_web_agents_subnet.validator.settlement.consensus.add_json_async') as mock_add:
-            with patch('autoppia_web_agents_subnet.validator.settlement.consensus.ENABLE_DISTRIBUTED_CONSENSUS', True):
-                mock_add.side_effect = Exception("IPFS connection failed")
-                
-                from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
-                cid = await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
-                
-                assert cid is None
+            mock_add.side_effect = Exception("IPFS connection failed")
+
+            from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
+            cid = await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
+
+            assert cid is None
 
     async def test_publishing_commits_to_blockchain(self, dummy_validator):
         """Test that publishing commits CID to blockchain."""
-        dummy_validator._get_async_subtensor = AsyncMock(return_value=Mock())
-        dummy_validator.wallet = Mock()
-        dummy_validator.wallet.hotkey.ss58_address = "test_hotkey"
-        
+        dummy_validator = self._configure_validator(dummy_validator)
+
         with patch('autoppia_web_agents_subnet.validator.settlement.consensus.add_json_async') as mock_add:
             with patch('autoppia_web_agents_subnet.validator.settlement.consensus.write_plain_commitment_json') as mock_write:
-                with patch('autoppia_web_agents_subnet.validator.settlement.consensus.ENABLE_DISTRIBUTED_CONSENSUS', True):
-                    mock_add.return_value = ("QmTest123", "sha256hex", 1024)
-                    mock_write.return_value = True
-                    
-                    from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
-                    await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
-                    
-                    # Should have called write_plain_commitment_json
-                    mock_write.assert_called_once()
+                mock_add.return_value = ("QmTest123", "sha256hex", 1024)
+                mock_write.return_value = True
+
+                from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
+                await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
+
+                mock_write.assert_called_once()
 
     async def test_publishing_handles_commit_failure(self, dummy_validator):
         """Test that publishing handles blockchain commit failure gracefully."""
-        dummy_validator._get_async_subtensor = AsyncMock(return_value=Mock())
-        dummy_validator.wallet = Mock()
-        dummy_validator.wallet.hotkey.ss58_address = "test_hotkey"
-        
+        dummy_validator = self._configure_validator(dummy_validator)
+
         with patch('autoppia_web_agents_subnet.validator.settlement.consensus.add_json_async') as mock_add:
             with patch('autoppia_web_agents_subnet.validator.settlement.consensus.write_plain_commitment_json') as mock_write:
-                with patch('autoppia_web_agents_subnet.validator.settlement.consensus.ENABLE_DISTRIBUTED_CONSENSUS', True):
-                    mock_add.return_value = ("QmTest123", "sha256hex", 1024)
-                    mock_write.return_value = False  # Commit fails
-                    
-                    from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
-                    cid = await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
-                    
-                    # Should return None when commit fails
-                    assert cid is None
+                mock_add.return_value = ("QmTest123", "sha256hex", 1024)
+                mock_write.return_value = False
+
+                from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
+                cid = await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
+
+                assert cid is None
+
+    async def test_publish_round_snapshot_includes_payment_freshness_metadata(self, dummy_validator):
+        """Published payment payload should surface freshness metadata for miners."""
+        dummy_validator = self._configure_validator(dummy_validator)
+
+        with patch('autoppia_web_agents_subnet.validator.settlement.consensus.add_json_async') as mock_add:
+            with patch('autoppia_web_agents_subnet.validator.settlement.consensus.write_plain_commitment_json') as mock_write:
+                with patch('autoppia_web_agents_subnet.validator.settlement.consensus.PAYMENT_WALLET_SS58', '5Payment'):
+                    with patch('autoppia_web_agents_subnet.validator.settlement.consensus.ALPHA_PER_EVAL', 1.0):
+                        with patch(
+                            'autoppia_web_agents_subnet.validator.settlement.consensus.refresh_payment_cache_entry',
+                            AsyncMock(return_value={
+                                'last_processed_block': 1234,
+                                'updated_at_unix': 1700000000,
+                                'totals_by_coldkey': {'ck1': 100},
+                            }),
+                        ):
+                            with patch(
+                                'autoppia_web_agents_subnet.validator.settlement.consensus.get_all_consumed_evals',
+                                return_value={'ck1': 2},
+                            ):
+                                with patch(
+                                    'autoppia_web_agents_subnet.validator.settlement.consensus.get_all_paid_rao',
+                                    return_value={'ck1': 100},
+                                ):
+                                    mock_add.return_value = ("QmTest123", "sha256hex", 1024)
+                                    mock_write.return_value = True
+
+                                    from autoppia_web_agents_subnet.validator.settlement.consensus import publish_round_snapshot
+                                    await publish_round_snapshot(dummy_validator, st=Mock(), scores={})
+
+                                    payload = mock_add.call_args[0][0]
+                                    assert payload["paid_rao_by_coldkey"] == {"ck1": 100}
+                                    assert payload["consumed_evals_by_coldkey"] == {"ck1": 2}
+                                    assert payload["payment_config"]["last_scanned_block"] == 1234
+                                    assert payload["payment_config"]["cache_updated_at_unix"] == 1700000000
 
 
 @pytest.mark.unit

@@ -13,6 +13,7 @@ from autoppia_web_agents_subnet.validator.payment.helpers import (
     get_all_paid_rao,
     increment_consumed_evals,
     remaining_evaluations,
+    refresh_payment_cache_entry,
     set_all_consumed_evals,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "get_paid_alpha_per_coldkey_async",
     "increment_consumed_evals",
     "remaining_evaluations",
+    "refresh_payment_cache_entry",
     "set_all_consumed_evals",
 ]
