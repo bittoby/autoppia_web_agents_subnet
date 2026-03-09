@@ -272,6 +272,13 @@ class RoundManager:
         """Reset all per-round statistics/state."""
         # Phase tracking
         self.reset_phase_tracking()
+        # Per-round reward/score accumulators used by evaluation mixin.
+        # These MUST be cleared every round so that success_tasks counts only
+        # reflect the current round's evaluations and do not carry over from
+        # previous rounds (which would inflate success_tasks for reused rounds).
+        self.round_rewards: dict = {}
+        self.round_eval_scores: dict = {}
+        self.round_times: dict = {}
 
     # ──────────────────────────────────────────────────────────────────────────
     # Phase tracking utilities
