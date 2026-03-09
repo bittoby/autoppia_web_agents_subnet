@@ -2,13 +2,14 @@ pydantic
 rich
 docker
 httpx
-pytest
+pytest>=7.2.0
 pytest-asyncio
 pytest-mock
 psutil
 hypothesis
 numpy
-setuptools
+setuptools>=78.1.1
 loguru
 xmldiff
 filelock
+starlette>=0.47.2
