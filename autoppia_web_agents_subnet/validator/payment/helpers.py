@@ -240,6 +240,25 @@ def get_all_consumed_evals(
         return {}
 
 
+def get_all_paid_rao(
+    *, payment_address: str | None = None, netuid: int = 36,
+    season_start_block: int, season_duration_blocks: int,
+    cache_path: str | None = None,
+) -> Dict[str, int]:
+    """Return the full totals_by_coldkey map (paid rao) for this season."""
+    addr = (payment_address or "").strip() or PAYMENT_WALLET_SS58
+    if not addr:
+        return {}
+    try:
+        _, entry, _ = _load_cache_entry(addr, netuid, season_start_block, season_duration_blocks, cache_path)
+        totals = entry.get("totals_by_coldkey", {})
+        if not isinstance(totals, dict):
+            return {}
+        return {str(k): int(v or 0) for k, v in totals.items()}
+    except Exception:
+        return {}
+
+
 def set_all_consumed_evals(
     consumed_map: Dict[str, int], *,
     payment_address: str | None = None, netuid: int = 36,

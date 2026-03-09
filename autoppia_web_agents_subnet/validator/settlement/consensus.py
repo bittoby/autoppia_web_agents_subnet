@@ -21,7 +21,7 @@ from autoppia_web_agents_subnet.platform.client import compute_season_number
 from autoppia_web_agents_subnet.validator.payment.config import (
     ALPHA_PER_EVAL, PAYMENT_WALLET_SS58, PAYMENT_CACHE_PATH,
 )
-from autoppia_web_agents_subnet.validator.payment.helpers import get_all_consumed_evals
+from autoppia_web_agents_subnet.validator.payment.helpers import get_all_consumed_evals, get_all_paid_rao
 
 
 def _safe_season_number(self, current_block: int) -> int:
@@ -130,6 +130,19 @@ async def publish_round_snapshot(
                 if compact:
                     payload["consumed_evals_by_coldkey"] = compact
                     bt.logging.info(f"[payment] Including {len(compact)} consumed eval entries in IPFS payload")
+                paid = get_all_paid_rao(
+                    payment_address=PAYMENT_WALLET_SS58, netuid=netuid,
+                    season_start_block=s_start, season_duration_blocks=s_dur,
+                    cache_path=PAYMENT_CACHE_PATH,
+                )
+                compact_paid = {k: v for k, v in paid.items() if v > 0}
+                if compact_paid:
+                    payload["paid_rao_by_coldkey"] = compact_paid
+                    bt.logging.info(f"[payment] Including {len(compact_paid)} paid rao entries in IPFS payload")
+                payload["payment_config"] = {
+                    "alpha_per_eval": float(ALPHA_PER_EVAL),
+                    "payment_wallet_ss58": str(PAYMENT_WALLET_SS58),
+                }
         except Exception as exc:
             bt.logging.warning(f"[payment] Failed to include consumed evals in IPFS payload: {exc}")
 
