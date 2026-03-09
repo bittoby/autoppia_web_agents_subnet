@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import time
@@ -76,6 +78,90 @@ class ValidatorPlatformMixin:
         self._round_log_last_upload_round_id: str | None = None
         # Phase flags for IWAP steps (p1=start_round, p2=set_tasks)
         self._phases: dict[str, Any] = {"p1_done": False, "p2_done": False}
+
+    def _evaluation_context_payload(self) -> dict[str, Any]:
+        season_number, _round_number = self._current_round_numbers()
+        try:
+            round_size_epochs = float(getattr(getattr(self, "round_manager", None), "round_size_epochs", 0.0) or 0.0)
+        except Exception:
+            round_size_epochs = 0.0
+        try:
+            season_size_epochs = float(getattr(getattr(self, "season_manager", None), "season_size_epochs", 0.0) or 0.0)
+        except Exception:
+            season_size_epochs = 0.0
+        try:
+            round_manager = getattr(self, "round_manager", None)
+            blocks_per_epoch = int(getattr(round_manager, "BLOCKS_PER_EPOCH", None) or getattr(round_manager, "blocks_per_epoch", None) or 360)
+        except Exception:
+            blocks_per_epoch = 360
+        try:
+            minimum_start_block = int(getattr(validator_config, "MINIMUM_START_BLOCK", 0) or 0)
+        except Exception:
+            minimum_start_block = 0
+        minimum_validator_version = str(getattr(self, "version", "") or "")
+
+        context_without_hash = {
+            "season_number": season_number,
+            "round_size_epochs": round_size_epochs,
+            "season_size_epochs": season_size_epochs,
+            "blocks_per_epoch": blocks_per_epoch,
+            "minimum_start_block": minimum_start_block,
+            "minimum_validator_version": minimum_validator_version,
+        }
+        context_json = json.dumps(context_without_hash, sort_keys=True, separators=(",", ":"))
+        return {
+            **context_without_hash,
+            "evaluation_context_hash": f"sha256:{hashlib.sha256(context_json.encode('utf-8')).hexdigest()}",
+        }
+
+    def _is_same_evaluation_context(self, stats: dict[str, Any] | None) -> bool:
+        if not isinstance(stats, dict):
+            return False
+        saved_context = stats.get("evaluation_context")
+        if not isinstance(saved_context, dict):
+            return False
+        current_context = self._evaluation_context_payload()
+        return str(saved_context.get("evaluation_context_hash", "") or "") == str(current_context.get("evaluation_context_hash", "") or "")
+
+    def _find_reusable_commit_stats(
+        self,
+        *,
+        uid: int,
+        github_url: str | None,
+        normalized_repo: str | None,
+        commit_sha: str | None,
+    ) -> dict[str, Any] | None:
+        stored_map = (getattr(self, "_evaluated_commits_by_miner", None) or {}).get(uid) or {}
+        if not isinstance(stored_map, dict):
+            return None
+
+        github_key = str(github_url or "").strip()
+        repo_key = str(normalized_repo or "").strip()
+        commit_key_raw = str(commit_sha or "").strip()
+        candidates: list[dict[str, Any]] = []
+
+        if github_key:
+            entry = stored_map.get(github_key)
+            if isinstance(entry, dict):
+                candidates.append(entry)
+        if repo_key and commit_key_raw:
+            entry = stored_map.get(f"{repo_key}|{commit_key_raw}")
+            if isinstance(entry, dict):
+                candidates.append(entry)
+
+        for entry in candidates:
+            if not entry.get("agent_run_id"):
+                continue
+            if not self._is_same_evaluation_context(entry):
+                continue
+            try:
+                total_tasks = int(entry.get("total_tasks", 0) or 0)
+            except Exception:
+                total_tasks = 0
+            if total_tasks <= 0:
+                continue
+            return entry
+        return None
 
     def _log_iwap_phase(self, phase: str, message: str, *, level: str = "info", exc_info: bool = False) -> None:
         # Delegate to logging utility (keeps test compatibility with monkeypatching this method)
@@ -394,7 +480,7 @@ class ValidatorPlatformMixin:
             tasks_success = int(stats.get("success_tasks", 0) or 0)
         except Exception:
             return None
-        return {
+        payload = {
             "reward": reward,
             "score": score,
             "time": avg_time,
@@ -407,6 +493,10 @@ class ValidatorPlatformMixin:
             "season": (int(stats["evaluated_season"]) if stats.get("evaluated_season") is not None else None),
             "round": (int(stats["evaluated_round"]) if stats.get("evaluated_round") is not None else None),
         }
+        evaluation_context = stats.get("evaluation_context")
+        if isinstance(evaluation_context, dict):
+            payload["evaluation_context"] = dict(evaluation_context)
+        return payload
 
     def _current_round_numbers(self) -> tuple[int | None, int | None]:
         season_number, round_number_in_season = self._extract_round_numbers_from_round_id(getattr(self, "current_round_id", None))
@@ -459,6 +549,7 @@ class ValidatorPlatformMixin:
             "season": season_number,
             "round": round_number_in_season,
             "zero_reason": getattr(run, "zero_reason", None),
+            "evaluation_context": self._evaluation_context_payload(),
         }
 
     def _best_run_payload_for_miner(self, uid: int) -> dict[str, Any] | None:
@@ -512,6 +603,8 @@ class ValidatorPlatformMixin:
         if not isinstance(existing, dict):
             existing = existing_map.get(commit_key)
         incoming = {"agent_run_id": agent_run_id, **(stats or {})}
+        if not isinstance(incoming.get("evaluation_context"), dict):
+            incoming["evaluation_context"] = self._evaluation_context_payload()
         # Keep explicit first/last evaluated round metadata per commit key.
         season_val = incoming.get("evaluated_season")
         round_val = incoming.get("evaluated_round")
@@ -527,6 +620,12 @@ class ValidatorPlatformMixin:
         # Do not downgrade a good reusable source with an empty/incomplete run.
         # Keep first meaningful evaluated run as anchor for reuse.
         if isinstance(existing, dict):
+            if not self._is_same_evaluation_context(existing):
+                target_map = self._evaluated_commits_by_miner.setdefault(uid, {})
+                target_map[commit_key] = incoming
+                if github_key:
+                    target_map[github_key] = incoming
+                return
             # Preserve first evaluation markers forever for this commit.
             if existing.get("first_evaluated_season") is not None:
                 incoming["first_evaluated_season"] = existing.get("first_evaluated_season")

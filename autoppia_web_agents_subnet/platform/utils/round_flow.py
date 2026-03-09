@@ -273,7 +273,23 @@ def _extract_round_summary_v2(*, season_history: dict[Any, Any], season_number: 
     if not isinstance(round_entry, dict):
         return None
     post_consensus_json = round_entry.get("post_consensus_json")
-    return post_consensus_json if isinstance(post_consensus_json, dict) else None
+    if not isinstance(post_consensus_json, dict):
+        return None
+    summary = post_consensus_json.get("summary")
+    if isinstance(summary, dict):
+        return dict(summary)
+    legacy_summary_keys = {
+        "season",
+        "round",
+        "percentage_to_dethrone",
+        "dethroned",
+        "leader_before_round",
+        "candidate_this_round",
+        "leader_after_round",
+    }
+    if legacy_summary_keys.intersection(post_consensus_json.keys()):
+        return dict(post_consensus_json)
+    return None
 
 
 def _persist_round_summary_file(
@@ -969,6 +985,7 @@ async def finish_round_flow(
             "github_url": effective_run.get("github_url"),
             "normalized_repo": effective_run.get("normalized_repo"),
             "commit_sha": effective_run.get("commit_sha"),
+            "evaluation_context": effective_run.get("evaluation_context"),
         }
 
         miner_payload = {
@@ -1242,6 +1259,7 @@ async def finish_round_flow(
             github_url = local_stats.get("github_url")
             normalized_repo = local_stats.get("normalized_repo")
             commit_sha = local_stats.get("commit_sha")
+            evaluation_context = local_stats.get("evaluation_context")
 
             current_stats = current_stats_by_miner.get(miner_uid) or {}
             current_run_consensus = None
@@ -1257,6 +1275,8 @@ async def finish_round_flow(
                     "normalized_repo": normalized_repo,
                     "commit_sha": commit_sha,
                 }
+                if isinstance(evaluation_context, dict):
+                    current_run_consensus["evaluation_context"] = dict(evaluation_context)
 
             post_consensus_miners.append(
                 {
@@ -1279,6 +1299,8 @@ async def finish_round_flow(
                     "current_run_consensus": current_run_consensus,
                 }
             )
+            if isinstance(evaluation_context, dict):
+                post_consensus_miners[-1]["best_run_consensus"]["evaluation_context"] = dict(evaluation_context)
 
         # Add burn_uid if it has weight > 0 but is not in consensus_rewards
         burn_uid = int(BURN_UID)
@@ -1314,6 +1336,38 @@ async def finish_round_flow(
             season_number=int(season_number_for_summary or 0),
             round_number_in_season=int(round_number_for_summary or 0),
         )
+        best_run_by_uid = {
+            int(miner_payload.get("uid")): dict(miner_payload.get("best_run_consensus") or {})
+            for miner_payload in post_consensus_miners
+            if isinstance(miner_payload, dict) and miner_payload.get("uid") is not None
+        }
+
+        def _canonical_summary_snapshot(existing: dict[str, Any] | None) -> dict[str, Any] | None:
+            if not isinstance(existing, dict):
+                return None
+            try:
+                snapshot_uid = int(existing.get("uid"))
+            except Exception:
+                return dict(existing)
+            best_run = best_run_by_uid.get(snapshot_uid)
+            if not isinstance(best_run, dict):
+                return dict(existing)
+            return {
+                "uid": snapshot_uid,
+                "reward": float(best_run.get("reward", existing.get("reward", 0.0)) or 0.0),
+                "score": float(best_run.get("score", existing.get("score", 0.0)) or 0.0),
+                "time": float(best_run.get("time", existing.get("time", 0.0)) or 0.0),
+                "cost": float(best_run.get("cost", existing.get("cost", 0.0)) or 0.0),
+                **({"weight": float(best_run.get("weight"))} if best_run.get("weight") is not None else {}),
+            }
+
+        if isinstance(post_consensus_json_summary, dict):
+            post_consensus_json_summary = {
+                **post_consensus_json_summary,
+                "leader_before_round": _canonical_summary_snapshot(post_consensus_json_summary.get("leader_before_round")),
+                "candidate_this_round": _canonical_summary_snapshot(post_consensus_json_summary.get("candidate_this_round")),
+                "leader_after_round": _canonical_summary_snapshot(post_consensus_json_summary.get("leader_after_round")),
+            }
 
         post_consensus_evaluation = {
             "season": int(season_number_for_summary or 0),
@@ -1329,6 +1383,30 @@ async def finish_round_flow(
         # NOTA: post_consensus_evaluation NO se sube a IPFS
         # Se calcula DESPUÉS de descargar todos los IPFS de otros validadores
         # Solo se guarda para enviarlo al backend en finish_round
+        try:
+            season_history = getattr(ctx, "_season_competition_history", None) or {}
+            if isinstance(season_history, dict):
+                season_key = int(season_number_for_summary or 0)
+                round_key = int(round_number_for_summary or 0)
+                season_state = season_history.get(season_key)
+                if not isinstance(season_state, dict):
+                    season_state = {}
+                rounds_state = season_state.get("rounds")
+                if not isinstance(rounds_state, dict):
+                    rounds_state = {}
+                round_entry = rounds_state.get(round_key)
+                if not isinstance(round_entry, dict):
+                    round_entry = {}
+                round_entry["post_consensus_json"] = dict(post_consensus_evaluation)
+                rounds_state[round_key] = round_entry
+                season_state["rounds"] = rounds_state
+                season_history[season_key] = season_state
+                ctx._season_competition_history = season_history
+                persist_fn = getattr(ctx, "_save_competition_state", None)
+                if callable(persist_fn):
+                    persist_fn()
+        except Exception:
+            bt.logging.warning("IWAP | Could not persist full post_consensus_json into local season history")
 
     # Build ipfs_downloaded with the raw downloaded payloads plus the shared post-consensus object.
     if _downloaded_payloads_raw:

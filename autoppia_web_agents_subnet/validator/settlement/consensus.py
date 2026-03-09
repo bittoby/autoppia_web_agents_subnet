@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import time
 from typing import Any
 
 import bittensor as bt
@@ -294,13 +295,13 @@ def _summary_snapshot_from_run(uid: int | None, run_payload: dict[str, Any] | No
     }
     if isinstance(run_payload, dict):
         with contextlib.suppress(Exception):
-            snapshot["reward"] = float(run_payload.get("reward", 0.0) or 0.0)
+            snapshot["reward"] = round(float(run_payload.get("reward", 0.0) or 0.0), 4)
         with contextlib.suppress(Exception):
-            snapshot["score"] = float(run_payload.get("score", 0.0) or 0.0)
+            snapshot["score"] = round(float(run_payload.get("score", 0.0) or 0.0), 4)
         with contextlib.suppress(Exception):
-            snapshot["time"] = float(run_payload.get("time", 0.0) or 0.0)
+            snapshot["time"] = round(float(run_payload.get("time", 0.0) or 0.0), 4)
         with contextlib.suppress(Exception):
-            snapshot["cost"] = float(run_payload.get("cost", 0.0) or 0.0)
+            snapshot["cost"] = round(float(run_payload.get("cost", 0.0) or 0.0), 4)
     if weight is not None:
         snapshot["weight"] = float(weight)
     return snapshot
@@ -496,6 +497,8 @@ async def publish_round_snapshot(
         "miners": miners_payload,
         "summary": local_summary,
     }
+    with contextlib.suppress(Exception):
+        self._ipfs_uploaded_payload = dict(payload)
 
     try:
         import json
@@ -517,6 +520,11 @@ async def publish_round_snapshot(
         bt.logging.success(ipfs_tag("UPLOAD", f"✅ SUCCESS - CID: {cid}"))
         bt.logging.info(ipfs_tag("UPLOAD", f"Size: {byte_len} bytes | SHA256: {sha_hex[:16]}..."))
         bt.logging.info("=" * 80)
+        try:
+            self._ipfs_upload_cid = str(cid)
+            self._consensus_publish_timestamp = time.time()
+        except Exception:
+            pass
     except Exception as exc:
         bt.logging.error("=" * 80)
         bt.logging.error(ipfs_tag("UPLOAD", f"❌ FAILED | Error: {type(exc).__name__}: {exc}"))
@@ -720,7 +728,7 @@ async def aggregate_scores_from_commitments(
             bt.logging.info(f"[IPFS] [DOWNLOAD] Validator {hk[:12]}... (UID {validator_uid}) | CID: {cid}")
             bt.logging.info(f"[IPFS] [DOWNLOAD] URL: http://ipfs.metahash73.com:5001/api/v0/cat?arg={cid}")
             bt.logging.info(f"[IPFS] [DOWNLOAD] Payload: {payload_json}")
-            payload_rewards, _payload_metrics = _extract_metrics_from_payload(payload)
+            payload_rewards, payload_metrics = _extract_metrics_from_payload(payload)
             miner_count = len(payload_rewards)
             bt.logging.success(f"[IPFS] [DOWNLOAD] ✅ SUCCESS - Round {payload.get('r')} | {miner_count} miners | Stake: {st_val:.2f}τ")
             bt.logging.info("=" * 80)

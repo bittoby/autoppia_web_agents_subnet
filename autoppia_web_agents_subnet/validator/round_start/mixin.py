@@ -34,24 +34,6 @@ from autoppia_web_agents_subnet.validator.round_start.synapse_handler import sen
 from autoppia_web_agents_subnet.validator.round_start.types import RoundStartResult
 
 
-def _commits_match(a: str | None, b: str | None) -> bool:
-    """
-    Treat short git hashes as equal to their full-length prefix.
-
-    This helps skip re-evaluation when miners submit GitHub /commit/<sha> URLs
-    that may use a shortened SHA.
-    """
-    if not a or not b:
-        return False
-    a_s = str(a).strip()
-    b_s = str(b).strip()
-    if not a_s or not b_s:
-        return False
-    if a_s == b_s:
-        return True
-    return bool(len(a_s) >= 7 and len(b_s) >= 7 and (a_s.startswith(b_s) or b_s.startswith(a_s)))
-
-
 def _clear_queue_best_effort(q: object) -> None:
     """
     Clear a queue.Queue without assuming it's always a real queue in unit tests.
@@ -762,87 +744,36 @@ class ValidatorRoundStartMixin:
                 resp.github_url = commit_url
 
             existing = self.agents_dict.get(uid)
+            reusable_stats = None
+            if normalized_repo and commit_sha:
+                reusable_stats = self._find_reusable_commit_stats(
+                    uid=int(uid),
+                    github_url=commit_url,
+                    normalized_repo=normalized_repo,
+                    commit_sha=commit_sha,
+                )
             if isinstance(existing, AgentInfo):
-                existing_repo = getattr(existing, "normalized_repo", None)
-                if not existing_repo:
+                if isinstance(reusable_stats, dict):
+                    self.miners_reused_this_round.add(uid)
+                    self.eligibility_status_by_uid[int(uid)] = "reused"
+                    bt.logging.info(f"[reuse] Miner {uid}: same github_url and evaluation context as a previous evaluated run; keeping best historical result (no re-eval).")
                     try:
-                        existing_repo, _ = normalize_and_validate_github_url(getattr(existing, "github_url", None), miner_uid=uid)
+                        existing.agent_name = agent_info.agent_name
+                        existing.agent_image = agent_info.agent_image
+                        existing.github_url = agent_info.github_url
+                        existing.normalized_repo = normalized_repo
+                        existing.git_commit = commit_sha
+                        existing.pending_github_url = None
+                        existing.pending_agent_name = None
+                        existing.pending_agent_image = None
+                        existing.pending_normalized_repo = None
+                        existing.pending_ref = None
+                        existing.pending_received_round = None
                     except Exception:
-                        existing_repo = None
-
-                existing_commit = getattr(existing, "git_commit", None)
-
-                # Do not re-evaluate if the submission commit didn't change.
-                # If we cannot resolve a commit hash, be conservative and re-evaluate.
-                if normalized_repo and commit_sha and existing_repo == normalized_repo and _commits_match(existing_commit, commit_sha):
-                    try:
-                        current_season = int(getattr(getattr(self, "season_manager", None), "season_number", 0) or 0)
-                    except Exception:
-                        current_season = 0
-                    last_season = getattr(existing, "last_evaluated_season", None)
-                    last_round = getattr(existing, "last_evaluated_round", None)
-                    try:
-                        last_season_i = int(last_season) if last_season is not None else None
-                    except Exception:
-                        last_season_i = None
-                    # IMPORTANT: do not reuse unless this miner has been actually evaluated before.
-                    # A previous round may have captured handshake metadata and then been skipped
-                    # (late start), leaving existing commit info without a real evaluation.
-                    has_prior_evaluation = bool(getattr(existing, "evaluated", False))
-                    if not has_prior_evaluation:
-                        has_prior_evaluation = (last_season_i is not None) or isinstance(last_round, int)
-                    if current_season and last_season_i is not None and last_season_i != int(current_season):
-                        # New season -> tasks changed, force re-evaluation even if commit unchanged.
                         pass
-                    elif has_prior_evaluation:
-                        # Keep score/evaluated, but allow display metadata to update.
-                        try:
-                            existing.agent_name = agent_info.agent_name
-                            existing.agent_image = agent_info.agent_image
-                            existing.github_url = agent_info.github_url
-                            if not getattr(existing, "normalized_repo", None):
-                                existing.normalized_repo = normalized_repo
-                            # Clear any stale pending submission (we are already on this commit).
-                            existing.pending_github_url = None
-                            existing.pending_agent_name = None
-                            existing.pending_agent_image = None
-                            existing.pending_normalized_repo = None
-                            existing.pending_ref = None
-                            existing.pending_received_round = None
-                        except Exception:
-                            pass
-                        self.agents_dict[uid] = existing
-                        unchanged_commit_skip_count += 1
-                        self.miners_reused_this_round.add(uid)
-                        self.eligibility_status_by_uid[int(uid)] = "reused"
-                        continue
-                    else:
-                        bt.logging.debug(f"[reuse] Miner {uid}: unchanged commit but no prior evaluation metadata; enqueueing for evaluation.")
-
-                # Already evaluated this (repo, commit) in a past round: do not re-evaluate.
-                if normalized_repo and commit_sha:
-                    evaluated_map = getattr(self, "_evaluated_commits_by_miner", None) or {}
-                    github_key = str(commit_url).strip() if isinstance(commit_url, str) and str(commit_url).strip() else None
-                    commit_key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
-                    stored_map = evaluated_map.get(uid) or {}
-                    stored = stored_map.get(github_key) if github_key else None
-                    if not isinstance(stored, dict):
-                        stored = stored_map.get(commit_key)
-                    if isinstance(stored, dict) and stored.get("agent_run_id"):
-                        self.miners_reused_this_round.add(uid)
-                        self.eligibility_status_by_uid[int(uid)] = "reused"
-                        bt.logging.info(f"[reuse] Miner {uid}: same (repo, commit) as a previous evaluated run; keeping best historical result (no re-eval).")
-                        try:
-                            existing.agent_name = agent_info.agent_name
-                            existing.agent_image = agent_info.agent_image
-                            existing.github_url = agent_info.github_url
-                            if not getattr(existing, "normalized_repo", None):
-                                existing.normalized_repo = normalized_repo
-                        except Exception:
-                            pass
-                        self.agents_dict[uid] = existing
-                        unchanged_commit_skip_count += 1
-                        continue
+                    self.agents_dict[uid] = existing
+                    unchanged_commit_skip_count += 1
+                    continue
 
                 # Submission changed (or unknown): enqueue for evaluation, but do
                 # not clobber the previously evaluated score/commit until new
@@ -876,18 +807,15 @@ class ValidatorRoundStartMixin:
                 continue
 
             # New uid (e.g. after validator restart): still check if this
-            # (repo, commit) was already evaluated in this season.
-            if normalized_repo and commit_sha:
-                evaluated_map = getattr(self, "_evaluated_commits_by_miner", None) or {}
-                key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
-                stored = (evaluated_map.get(uid) or {}).get(key)
-                if isinstance(stored, dict) and stored.get("agent_run_id"):
-                    self.miners_reused_this_round.add(uid)
-                    self.eligibility_status_by_uid[int(uid)] = "reused"
-                    bt.logging.info(f"[reuse] Miner {uid}: same (repo, commit) as a previous evaluated run; keeping best historical result (no re-eval).")
-                    self.agents_dict[uid] = agent_info
-                    unchanged_commit_skip_count += 1
-                    continue
+            # New uid (e.g. after validator restart): reuse only when the prior
+            # evaluation matches the same full commit URL and evaluation context.
+            if isinstance(reusable_stats, dict):
+                self.miners_reused_this_round.add(uid)
+                self.eligibility_status_by_uid[int(uid)] = "reused"
+                bt.logging.info(f"[reuse] Miner {uid}: same github_url and evaluation context as a previous evaluated run; keeping best historical result (no re-eval).")
+                self.agents_dict[uid] = agent_info
+                unchanged_commit_skip_count += 1
+                continue
 
             # New uid: track it immediately and enqueue for evaluation.
             self.agents_dict[uid] = agent_info

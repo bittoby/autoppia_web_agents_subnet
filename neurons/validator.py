@@ -291,6 +291,9 @@ class Validator(
                             "first_evaluated_season": run_payload.get("season"),
                             "first_evaluated_round": run_payload.get("round"),
                         }
+                        evaluation_context = run_payload.get("evaluation_context")
+                        if isinstance(evaluation_context, dict):
+                            stats["evaluation_context"] = dict(evaluation_context)
                         target_map = rebuilt.setdefault(uid_i, {})
                         commit_key = f"{normalized_repo.strip()}|{commit_sha.strip()}"
                         target_map[commit_key] = stats

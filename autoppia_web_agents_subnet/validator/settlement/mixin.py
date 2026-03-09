@@ -719,11 +719,16 @@ class ValidatorSettlementMixin:
         round_entry["post_consensus_json"] = {
             "season": int(season_number),
             "round": int(round_key),
-            "percentage_to_dethrone": float(required_improvement_pct),
-            "dethroned": bool(dethroned),
-            "leader_before_round": leader_before_snapshot,
-            "candidate_this_round": candidate_snapshot,
-            "leader_after_round": leader_after_snapshot,
+            "miners": [],
+            "summary": {
+                "season": int(season_number),
+                "round": int(round_key),
+                "percentage_to_dethrone": float(required_improvement_pct),
+                "dethroned": bool(dethroned),
+                "leader_before_round": leader_before_snapshot,
+                "candidate_this_round": candidate_snapshot,
+                "leader_after_round": leader_after_snapshot,
+            },
         }
         season_state["rounds"] = rounds_state
         season_state["summary"] = summary_state
