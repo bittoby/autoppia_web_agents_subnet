@@ -59,7 +59,7 @@ def _count_from_mapping_format(data: dict, direct: set[str]) -> int:
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent.parent
-    req_path = repo_root / "webs_server" / "requirements.txt"
+    req_path = repo_root / "requirements.txt"
     audit_path = repo_root / "reports" / "pip-audit.json"
 
     if len(sys.argv) >= 2:
