@@ -17,6 +17,7 @@ from autoppia_web_agents_subnet.validator.payment import (
     get_coldkey_balance,
     get_alpha_sent_by_miner,
     get_paid_alpha_per_coldkey_async,
+    refresh_payment_cache_entry,
 )
 
 
@@ -419,8 +420,35 @@ class TestGetAlphaSentByMiner:
                 season_start_block=400,
                 season_duration_blocks=200,
                 cache_path=cache_path,
-            )
+        )
         assert result == 11 * RAO_PER_ALPHA
+
+    async def test_refresh_payment_cache_entry_returns_freshness_metadata(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cache_path = str(tmp_path / "payment_cache.json")
+        coldkey = _random_ss58_like("5Ck")
+        payment_address = _random_ss58_like("5Pay")
+        subtensor = MagicMock()
+        subtensor.get_current_block = AsyncMock(return_value=350)
+        scan_mock = AsyncMock(return_value={coldkey: 4 * RAO_PER_ALPHA})
+
+        with patch(
+            "autoppia_web_agents_subnet.validator.payment.helpers.get_paid_alpha_per_coldkey_async",
+            scan_mock,
+        ):
+            entry = await refresh_payment_cache_entry(
+                subtensor=subtensor,
+                payment_address=payment_address,
+                netuid=36,
+                season_start_block=300,
+                season_duration_blocks=100,
+                cache_path=cache_path,
+            )
+
+        assert entry["last_processed_block"] == 350
+        assert entry["totals_by_coldkey"][coldkey] == 4 * RAO_PER_ALPHA
+        assert isinstance(entry["updated_at_unix"], int)
 
     @pytest.mark.parametrize("from_b,to_b", [(None, 500), (100, 200), (1, 100)])
     async def test_block_range_optional_coverage(self, from_b, to_b):

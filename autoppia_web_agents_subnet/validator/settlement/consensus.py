@@ -21,7 +21,8 @@ from autoppia_web_agents_subnet.platform.client import compute_season_number
 from autoppia_web_agents_subnet.validator.payment.config import (
     ALPHA_PER_EVAL, PAYMENT_WALLET_SS58, PAYMENT_CACHE_PATH,
 )
-from autoppia_web_agents_subnet.validator.payment.helpers import get_all_consumed_evals
+from autoppia_web_agents_subnet.validator.payment.helpers import get_all_consumed_evals, get_all_paid_rao
+from autoppia_web_agents_subnet.validator.payment.helpers import refresh_payment_cache_entry
 
 
 def _safe_season_number(self, current_block: int) -> int:
@@ -121,6 +122,15 @@ async def publish_round_snapshot(
                 s_dur = int(float(SEASON_SIZE_EPOCHS) * int(bpe))
             netuid = int(getattr(self.config, "netuid", 36) or 36)
             if s_start is not None and s_dur and s_dur > 0:
+                refreshed_entry = await refresh_payment_cache_entry(
+                    subtensor=st,
+                    payment_address=PAYMENT_WALLET_SS58,
+                    netuid=netuid,
+                    to_block=current_block,
+                    season_start_block=s_start,
+                    season_duration_blocks=s_dur,
+                    cache_path=PAYMENT_CACHE_PATH,
+                )
                 consumed = get_all_consumed_evals(
                     payment_address=PAYMENT_WALLET_SS58, netuid=netuid,
                     season_start_block=s_start, season_duration_blocks=s_dur,
@@ -130,6 +140,21 @@ async def publish_round_snapshot(
                 if compact:
                     payload["consumed_evals_by_coldkey"] = compact
                     bt.logging.info(f"[payment] Including {len(compact)} consumed eval entries in IPFS payload")
+                paid = get_all_paid_rao(
+                    payment_address=PAYMENT_WALLET_SS58, netuid=netuid,
+                    season_start_block=s_start, season_duration_blocks=s_dur,
+                    cache_path=PAYMENT_CACHE_PATH,
+                )
+                compact_paid = {k: v for k, v in paid.items() if v > 0}
+                if compact_paid:
+                    payload["paid_rao_by_coldkey"] = compact_paid
+                    bt.logging.info(f"[payment] Including {len(compact_paid)} paid rao entries in IPFS payload")
+                payload["payment_config"] = {
+                    "alpha_per_eval": float(ALPHA_PER_EVAL),
+                    "payment_wallet_ss58": str(PAYMENT_WALLET_SS58),
+                    "last_scanned_block": refreshed_entry.get("last_processed_block"),
+                    "cache_updated_at_unix": refreshed_entry.get("updated_at_unix"),
+                }
         except Exception as exc:
             bt.logging.warning(f"[payment] Failed to include consumed evals in IPFS payload: {exc}")
 
