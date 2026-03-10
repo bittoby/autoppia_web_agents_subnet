@@ -3,7 +3,7 @@ Unit tests for round log capture (ColoredLogger set_round_log_file / clear_round
 
 Verifies that:
 - The subnet does NOT depend on IWA (only optionally uses loguru if present).
-- set_round_log_file creates the correct path (data/season_X/round_Y/logs/<round_id>.log).
+- set_round_log_file creates the correct path (`data/season_X/round_Y/round.log`).
 - Python logging and (if available) loguru write to the same file without collision.
 - get_round_log_file returns the path; clear_round_log_file cleans up.
 """
@@ -20,7 +20,7 @@ class TestRoundLogCapture:
     """Test round log file creation, capture, and cleanup."""
 
     def test_set_round_log_file_creates_path_and_file(self, tmp_path):
-        """set_round_log_file creates data/season_X/round_Y/logs/<round_id>.log."""
+        """set_round_log_file creates data/season_X/round_Y/round.log."""
         from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 
         orig_cwd = os.getcwd()
@@ -31,8 +31,8 @@ class TestRoundLogCapture:
             ColoredLogger.set_round_log_file(round_id)
             path = ColoredLogger.get_round_log_file()
             assert path is not None
-            assert "validator_round_1_1_abc123.log" in path
-            assert "season_1" in path and "round_1" in path and "logs" in path
+            assert path.endswith("round.log")
+            assert "season_1" in path and "round_1" in path
             assert Path(path).exists()
         finally:
             os.chdir(orig_cwd)

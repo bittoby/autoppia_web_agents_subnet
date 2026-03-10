@@ -142,7 +142,13 @@ class ValidatorSettlementMixin:
             )
         else:
             st = await self._get_async_subtensor()
-            await publish_round_snapshot(self, st=st, scores={})
+            local_scores_for_snapshot: dict[str, float] = {}
+            for uid, info in agents_dict.items():
+                try:
+                    local_scores_for_snapshot[str(int(uid))] = float(getattr(info, "score", 0.0) or 0.0)
+                except Exception:
+                    continue
+            await publish_round_snapshot(self, st=st, scores=local_scores_for_snapshot)
 
             fetch_fraction = float(
                 getattr(
@@ -621,6 +627,8 @@ class ValidatorSettlementMixin:
                 "reward": float(winner_reward),
             },
             "miner_rewards": {int(uid): float(reward) for uid, reward in miner_rewards_for_round.items()},
+            # Backward-compatible alias used by older tests/report consumers.
+            "miner_scores": {int(uid): float(reward) for uid, reward in miner_rewards_for_round.items()},
             "decision": {
                 "top_candidate_uid": int(challenger_uid) if challenger_uid is not None else None,
                 "top_candidate_reward": float(challenger_reward),

@@ -913,9 +913,12 @@ async def finish_round_flow(
     local_evaluation_miners = []
     local_stats_by_miner: dict[int, dict[str, Any]] = {}
 
+    best_run_getter = getattr(ctx, "_best_run_payload_for_miner", None)
+    current_run_getter = getattr(ctx, "_current_round_run_payload", None)
+
     for miner_uid in participant_uids:
-        best_run = ctx._best_run_payload_for_miner(miner_uid)
-        current_run = ctx._current_round_run_payload(miner_uid)
+        best_run = best_run_getter(miner_uid) if callable(best_run_getter) else None
+        current_run = current_run_getter(miner_uid) if callable(current_run_getter) else None
         effective_run = best_run or current_run
         if effective_run is None:
             effective_run = {
@@ -944,8 +947,8 @@ async def finish_round_flow(
     rank_map_local = {uid: rank for rank, (uid, _score, _time) in enumerate(sorted_miners_local, start=1)}
 
     for miner_uid in participant_uids:
-        best_run = ctx._best_run_payload_for_miner(miner_uid)
-        current_run = ctx._current_round_run_payload(miner_uid)
+        best_run = best_run_getter(miner_uid) if callable(best_run_getter) else None
+        current_run = current_run_getter(miner_uid) if callable(current_run_getter) else None
         effective_run = best_run or current_run or {}
         rank_value = rank_map_local.get(miner_uid)
 
@@ -1009,7 +1012,7 @@ async def finish_round_flow(
 
     agent_run_summaries: list[iwa_models.FinishRoundAgentRunIWAP] = []
     for miner_uid, agent_run in (ctx.current_agent_runs or {}).items():
-        current_run = ctx._current_round_run_payload(miner_uid)
+        current_run = current_run_getter(miner_uid) if callable(current_run_getter) else None
         if current_run is None:
             continue
         miner_name = None
@@ -1090,7 +1093,7 @@ async def finish_round_flow(
     tasks_total_for_round = 0
     tasks_completed_for_round = 0
     for miner_uid in ctx.current_agent_runs or {}:
-        current_run = ctx._current_round_run_payload(miner_uid)
+        current_run = current_run_getter(miner_uid) if callable(current_run_getter) else None
         if not isinstance(current_run, dict):
             continue
         tasks_total_for_round += int(current_run.get("tasks_received", 0) or 0)
@@ -1231,8 +1234,8 @@ async def finish_round_flow(
             # Obtener stats: primero del consensus, luego locales como fallback
             consensus_stats = stats_by_miner.get(miner_uid) or {}
             local_stats = local_stats_by_miner.get(miner_uid) or {}
-            best_run_payload = ctx._best_run_payload_for_miner(miner_uid)
-            current_run_payload = ctx._current_round_run_payload(miner_uid)
+            best_run_payload = best_run_getter(miner_uid) if callable(best_run_getter) else None
+            current_run_payload = current_run_getter(miner_uid) if callable(current_run_getter) else None
 
             # Obtener miner_hotkey
             miner_hotkey = None

@@ -40,7 +40,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "setuptools>=78.1.1"
+          pip install "setuptools==80.9.0"
           pip install -r requirements.txt
           pip install "bittensor==9.9.0"
           pip install -e .
@@ -70,7 +70,9 @@ jobs:
           exit 1
 
       - name: Ensure setuptools (pkg_resources) for bittensor/munch
-        run: pip install "setuptools>=78.1.1"
+        run: |
+          pip install --force-reinstall "setuptools==80.9.0"
+          python -c "import pkg_resources; print('pkg_resources ok')"
 
       - name: Run tests with coverage
         env:

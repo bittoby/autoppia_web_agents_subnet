@@ -775,6 +775,28 @@ class ValidatorRoundStartMixin:
                     unchanged_commit_skip_count += 1
                     continue
 
+                # Backward-compatible unchanged-submission fast path:
+                # when we already evaluated this uid and the submitted commit is
+                # identical, skip re-enqueueing even if reusable_stats cache is empty.
+                existing_commit = str(getattr(existing, "git_commit", "") or "").strip()
+                existing_repo = str(getattr(existing, "normalized_repo", "") or "").strip()
+                same_repo = bool(existing_repo and normalized_repo and existing_repo == normalized_repo)
+                same_commit = bool(existing_commit and commit_sha and existing_commit == commit_sha)
+                if bool(getattr(existing, "evaluated", False)) and same_repo and same_commit:
+                    self.miners_reused_this_round.add(uid)
+                    self.eligibility_status_by_uid[int(uid)] = "reused"
+                    try:
+                        existing.agent_name = agent_info.agent_name
+                        existing.agent_image = agent_info.agent_image
+                        existing.github_url = agent_info.github_url
+                        existing.normalized_repo = normalized_repo
+                        existing.git_commit = commit_sha
+                    except Exception:
+                        pass
+                    self.agents_dict[uid] = existing
+                    unchanged_commit_skip_count += 1
+                    continue
+
                 # Submission changed (or unknown): enqueue for evaluation, but do
                 # not clobber the previously evaluated score/commit until new
                 # evaluation completes.
