@@ -11,4 +11,5 @@ setuptools
 loguru
 xmldiff
 filelock
-hippius
+hippius>=0.2.63
+boto3>=1.28.0
