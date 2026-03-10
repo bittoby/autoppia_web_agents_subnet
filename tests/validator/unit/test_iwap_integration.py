@@ -10,16 +10,18 @@ Tests verify that:
 
 from __future__ import annotations
 
-import pytest
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from autoppia_web_agents_subnet.platform import models as iwa_models
 from autoppia_web_agents_subnet.platform.utils.round_flow import (
+    finish_round_flow,
     register_participating_miners_in_iwap,
     start_round_flow,
-    finish_round_flow,
 )
 from autoppia_web_agents_subnet.platform.utils.task_flow import submit_task_results
-from autoppia_web_agents_subnet.platform import models as iwa_models
 
 
 class MockContext:
@@ -51,6 +53,8 @@ class MockContext:
         self.iwap_client = AsyncMock()
         self.round_manager = MagicMock()
         self.round_manager.ROUND_BLOCK_LENGTH = 360
+        self._best_run_payload_for_miner = lambda _uid: None
+        self._current_round_run_payload = lambda _uid: None
 
         # Add _reset_iwap_round_state method
         def _reset_iwap_round_state():
@@ -120,7 +124,7 @@ async def test_register_miners_handles_duplicate():
     ctx = MockContext()
 
     # Mock 409 response
-    from httpx import Response, HTTPStatusError, Request
+    from httpx import HTTPStatusError, Request, Response
 
     mock_response = Response(status_code=409, text="Already exists")
     mock_request = Request("POST", "http://test.com")
@@ -174,6 +178,7 @@ async def test_submit_task_results_success():
     # Mock task (TaskStub from conftest doesn't accept id parameter)
     from autoppia_iwa.src.data_generation.tasks.classes import Task
     from autoppia_iwa.src.demo_webs.classes import WebProject
+
     from autoppia_web_agents_subnet.validator.models import TaskWithProject
 
     task = Task(url="http://test.com", prompt="Test task")
@@ -226,6 +231,7 @@ async def test_submit_task_results_offline_mode():
 
     from autoppia_iwa.src.data_generation.tasks.classes import Task
     from autoppia_iwa.src.demo_webs.classes import WebProject
+
     from autoppia_web_agents_subnet.validator.models import TaskWithProject
 
     task = Task(url="http://test.com", prompt="Test task")
@@ -256,12 +262,9 @@ async def test_offline_mode_detection():
     ctx.iwap_client.auth_check = AsyncMock(side_effect=Exception("Connection refused"))
 
     # Mock dependencies
-    with patch("autoppia_web_agents_subnet.platform.utils.round_flow.build_validator_identity"):
-        with patch("autoppia_web_agents_subnet.platform.utils.round_flow.build_validator_snapshot"):
-            try:
-                await start_round_flow(ctx, current_block=1000, n_tasks=5)
-            except Exception:
-                pass  # Expected to fail, we just want to verify offline mode was set
+    with patch("autoppia_web_agents_subnet.platform.utils.round_flow.build_validator_identity"), patch("autoppia_web_agents_subnet.platform.utils.round_flow.build_validator_snapshot"):
+        with contextlib.suppress(Exception):
+            await start_round_flow(ctx, current_block=1000, n_tasks=5)  # Expected to fail, we just verify offline mode
 
     # Verify offline mode was activated
     assert ctx._iwap_offline_mode is True
@@ -289,9 +292,8 @@ async def test_full_integration_flow():
     ctx.round_manager.round_times = {42: [5.0, 6.0], 55: [7.0, 8.0]}
 
     # 1. Start round
-    with patch("autoppia_web_agents_subnet.platform.utils.round_flow.build_validator_identity"):
-        with patch("autoppia_web_agents_subnet.platform.utils.round_flow.build_validator_snapshot"):
-            await start_round_flow(ctx, current_block=1000, n_tasks=5)
+    with patch("autoppia_web_agents_subnet.platform.utils.round_flow.build_validator_identity"), patch("autoppia_web_agents_subnet.platform.utils.round_flow.build_validator_snapshot"):
+        await start_round_flow(ctx, current_block=1000, n_tasks=5)
 
     # Verify start_round was called
     ctx.iwap_client.start_round.assert_called_once()

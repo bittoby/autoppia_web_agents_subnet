@@ -16,10 +16,12 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+import argparse
 import os
 import subprocess
-import argparse
+
 import bittensor as bt
+
 from .logging import setup_events_logger
 
 
@@ -43,15 +45,8 @@ def check_config(cls, config: "bt.Config"):
     r"""Checks/validates the config namespace object."""
     bt.logging.check_config(config)
 
-    full_path = os.path.expanduser(
-        "{}/{}/{}/netuid{}/{}".format(
-            config.logging.logging_dir,  # TODO: change from ~/.bittensor/miners to ~/.bittensor/neurons
-            config.wallet.name,
-            config.wallet.hotkey,
-            config.netuid,
-            config.neuron.name,
-        )
-    )
+    # Path: logging_dir/wallet/hotkey/netuid/neuron (TODO: change from ~/.bittensor/miners to ~/.bittensor/neurons)
+    full_path = os.path.expanduser(f"{config.logging.logging_dir}/{config.wallet.name}/{config.wallet.hotkey}/netuid{config.netuid}/{config.neuron.name}")
     print("full path:", full_path)
     config.neuron.full_path = os.path.expanduser(full_path)
     if not os.path.exists(config.neuron.full_path):
@@ -59,9 +54,7 @@ def check_config(cls, config: "bt.Config"):
 
     if not config.neuron.dont_save_events:
         # Add custom event logger for the events.
-        events_logger = setup_events_logger(
-            config.neuron.full_path, config.neuron.events_retention_size
-        )
+        events_logger = setup_events_logger(config.neuron.full_path, config.neuron.events_retention_size)
         bt.logging.register_primary_logger(events_logger.name)
 
 
@@ -111,10 +104,7 @@ def add_args(cls, parser):
     parser.add_argument(
         "--logging.suppress_dendrite_noise",
         action=argparse.BooleanOptionalAction,
-        help=(
-            "Suppress very noisy dendrite connection DEBUG logs (e.g. ClientConnectorError/TimeoutError) "
-            "without raising global log level."
-        ),
+        help=("Suppress very noisy dendrite connection DEBUG logs (e.g. ClientConnectorError/TimeoutError) without raising global log level."),
         default=True,
     )
 

@@ -2,23 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import os
 import time
-from typing import Tuple, Any
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import bittensor as bt
+from autoppia_iwa.src.data_generation.tasks.classes import Task
+from autoppia_iwa.src.evaluation.stateful_evaluator import AsyncStatefulEvaluator, ScoreDetails
+from autoppia_iwa.src.web_agents.classes import TaskSolution, sanitize_snapshot_html
 
 from autoppia_web_agents_subnet.utils.iwa_log_filter import enforce_iwa_log_filter
 from autoppia_web_agents_subnet.validator.config import (
     AGENT_STEP_TIMEOUT_SECONDS,
-    TASK_TIMEOUT_SECONDS,
     SHOULD_RECORD_GIF,
+    TASK_TIMEOUT_SECONDS,
 )
-
-from autoppia_iwa.src.data_generation.tasks.classes import Task
-from autoppia_iwa.src.evaluation.stateful_evaluator import AsyncStatefulEvaluator, ScoreDetails
-from autoppia_iwa.src.web_agents.classes import TaskSolution, sanitize_snapshot_html
 
 try:
     from autoppia_iwa.src.web_agents.apified_iterative_agent import (  # type: ignore
@@ -46,7 +46,7 @@ def _to_screenshot_b64(raw: Any) -> str | None:
         return None
     if isinstance(raw, str):
         return raw or None
-    if isinstance(raw, (bytes, bytearray, memoryview)):
+    if isinstance(raw, bytes | bytearray | memoryview):
         return base64.b64encode(bytes(raw)).decode("ascii")
     return None
 
@@ -58,7 +58,7 @@ def _remaining_task_timeout(start_ts: float) -> float:
 async def _await_with_task_deadline(coro: Any, *, start_ts: float) -> Any:
     remaining = _remaining_task_timeout(start_ts)
     if remaining <= 0.0:
-        raise asyncio.TimeoutError
+        raise TimeoutError
     return await asyncio.wait_for(coro, timeout=remaining)
 
 
@@ -97,7 +97,7 @@ async def evaluate_with_stateful_cua(
     uid: int,
     base_url: str,
     max_steps: int = 30,
-) -> Tuple[float, float, TaskSolution]:
+) -> tuple[float, float, TaskSolution]:
     """
     Evaluate a sandboxed miner agent using AsyncStatefulEvaluator + ApifiedWebAgent.
     """
@@ -128,7 +128,7 @@ async def evaluate_with_stateful_cua(
                 validator_id=validator_id,
             )
             if augmented_url and augmented_url != original_url:
-                setattr(task_for_eval, "url", augmented_url)
+                task_for_eval.url = augmented_url
     except Exception:
         pass
 
@@ -179,7 +179,7 @@ async def evaluate_with_stateful_cua(
                     ),
                     start_ts=start_ts,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 bt.logging.warning(
                     f"[stateful_cua_eval] miner {uid} hard timeout reached during /act for task {getattr(task, 'id', '?')}: {time.monotonic() - start_ts:.2f}s >= {TASK_TIMEOUT_SECONDS:.2f}s"
                 )
@@ -197,7 +197,7 @@ async def evaluate_with_stateful_cua(
                     step_result = await _await_with_task_deadline(evaluator.step(action), start_ts=start_ts)
                 else:
                     step_result = await _await_with_task_deadline(evaluator.step(None), start_ts=start_ts)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 bt.logging.warning(
                     f"[stateful_cua_eval] miner {uid} hard timeout reached during evaluator step for task {getattr(task, 'id', '?')}: {time.monotonic() - start_ts:.2f}s >= {TASK_TIMEOUT_SECONDS:.2f}s"
                 )
@@ -234,7 +234,7 @@ async def evaluate_with_stateful_cua(
                 bt.logging.warning(f"[stateful_cua_eval] miner {uid} hard timeout reached after step {step_index}: {elapsed:.2f}s >= {TASK_TIMEOUT_SECONDS:.2f}s")
                 break
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         bt.logging.warning(
             f"[stateful_cua_eval] miner {uid} hard timeout reached while initializing task {getattr(task, 'id', '?')}: {time.monotonic() - start_ts:.2f}s >= {TASK_TIMEOUT_SECONDS:.2f}s"
         )
@@ -263,7 +263,7 @@ async def evaluate_with_stateful_cua(
             if SHOULD_RECORD_GIF and screenshot_frames:
                 try:
                     encoded = make_gif_from_screenshots(screenshot_frames)
-                    if isinstance(encoded, (bytes, bytearray)):
+                    if isinstance(encoded, bytes | bytearray):
                         gif_b64 = bytes(encoded).decode("utf-8")
                     elif isinstance(encoded, str):
                         gif_b64 = encoded
@@ -286,10 +286,8 @@ async def evaluate_with_stateful_cua(
             # If we cannot reconstruct a solution, append a minimal empty one
             solution = TaskSolution(task_id=str(getattr(task, "id", "")), actions=[], web_agent_id=str(uid))
 
-        try:
+        with contextlib.suppress(Exception):
             await asyncio.wait_for(evaluator.close(), timeout=5.0)
-        except Exception:
-            pass
 
     score = max(0.0, min(final_score.raw_score, 1.0))
     elapsed = min(max(time.monotonic() - start_ts, 0.0), float(TASK_TIMEOUT_SECONDS))

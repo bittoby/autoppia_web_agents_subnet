@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from typing import List, Any, Sequence, Dict
 import math
 from collections import Counter
+from collections.abc import Sequence
+from typing import Any
 
-import numpy as np
 import bittensor as bt
+import numpy as np
 
 # Hard-coded defaults (no env/config knobs).
 SAME_SOLUTION_PENALTY = 0.0
 SAME_SOLUTION_SIM_THRESHOLD = 0.90
 
 
-def detect_same_solution_groups(solutions: List[Any]) -> List[List[int]]:
+def detect_same_solution_groups(solutions: list[Any]) -> list[list[int]]:
     """
     Return groups (list of index lists) where each group contains 2+
     indices of solutions that are identical or highly similar.
@@ -22,11 +23,11 @@ def detect_same_solution_groups(solutions: List[Any]) -> List[List[int]]:
     try:
         # Normalize solutions and build simple bag-of-words representations
         safe_solutions = [s if s is not None else type("_Empty", (), {"actions": []})() for s in solutions]
-        bows: List[Counter[str]] = []
-        norms: List[float] = []
+        bows: list[Counter[str]] = []
+        norms: list[float] = []
 
         for sol in safe_solutions:
-            tokens: List[str] = []
+            tokens: list[str] = []
             for a in getattr(sol, "actions", []) or []:
                 try:
                     a_type = str(getattr(a, "type", "") or "").lower()
@@ -42,11 +43,11 @@ def detect_same_solution_groups(solutions: List[Any]) -> List[List[int]]:
             norm = math.sqrt(sum(float(v) * float(v) for v in bow.values())) or 1.0
             norms.append(norm)
 
-        groups: List[List[int]] = []
+        groups: list[list[int]] = []
         n = len(bows)
         thr = float(SAME_SOLUTION_SIM_THRESHOLD)
         # Build adjacency based on cosine similarity over the simple BOW vectors.
-        adj: Dict[int, set[int]] = {i: set() for i in range(n)}
+        adj: dict[int, set[int]] = {i: set() for i in range(n)}
         for i in range(n):
             if not bows[i]:
                 continue
@@ -86,9 +87,9 @@ def detect_same_solution_groups(solutions: List[Any]) -> List[List[int]]:
 
 
 def apply_same_solution_penalty_with_meta(
-    solutions: List[Any],
+    solutions: list[Any],
     scores_arr: np.ndarray,
-) -> tuple[np.ndarray, List[List[int]]]:
+) -> tuple[np.ndarray, list[list[int]]]:
     """
     Like apply_same_solution_penalty but also returns the penalized groups
     (index lists) for visibility/logging.
@@ -106,7 +107,7 @@ def apply_same_solution_penalty_with_meta(
 
 
 def apply_same_solution_penalty(
-    solutions: List[Any],
+    solutions: list[Any],
     eval_scores: Sequence[float],
 ) -> np.ndarray:
     penalized, _groups = apply_same_solution_penalty_with_meta(solutions, np.asarray(eval_scores, dtype=float))

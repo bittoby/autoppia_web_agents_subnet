@@ -179,6 +179,17 @@ Our goal is revolutionizing how every industry leverages web-based software by a
 
 With Autoppia Web Operator, the future of business operations is defined by the power of web automation—transforming everyday workflows into efficient, scalable, and intelligent processes.
 
+## 🔧 Code quality (Sonar)
+
+CI runs [SonarCloud](https://sonarcloud.io) on push/PR. To **run the same analysis locally** and fix issues before committing:
+
+1. **Install:** `pip install pysonar pytest pytest-cov`
+2. **Configure:** In `sonar-project.properties` set `sonar.organization` (your SonarCloud org), or export `SONAR_ORGANIZATION`.
+3. **Token:** SonarCloud → My Account → Security → Generate Token, then `export SONAR_TOKEN=your_token`
+4. **Run:** `./scripts/run_sonar_local.sh`
+
+This runs tests with coverage and then the Sonar scanner so you get the same quality gate as CI without push-and-fix cycles.
+
 ## 📜 License
 
 _Built with ❤️ by the Autoppia Team_

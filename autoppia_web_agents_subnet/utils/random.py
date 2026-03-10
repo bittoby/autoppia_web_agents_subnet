@@ -1,20 +1,16 @@
-from typing import List, Any
 import itertools
 import random
+from typing import Any
+
 import numpy as np
 
 
-def interleave(*lists: List[Any]):
+def interleave(*lists: list[Any]):
     """
     Interleaves multiple lists like [a1, a2], [b1, b2] → [a1, b1, a2, b2], skipping None.
     Accepts any number of lists.
     """
-    return (
-        item
-        for group in itertools.zip_longest(*lists)
-        for item in group
-        if item is not None
-    )
+    return (item for group in itertools.zip_longest(*lists) for item in group if item is not None)
 
 
 def split_tasks_evenly(total_tasks: int, num_projects: int) -> list[int]:
@@ -30,7 +26,7 @@ def split_tasks_evenly(total_tasks: int, num_projects: int) -> list[int]:
     return distribution
 
 
-def get_random_uids(validator, k: int, exclude: List[int] = None) -> np.ndarray:
+def get_random_uids(validator, k: int, exclude: list[int] | None = None) -> np.ndarray:
     """Returns k random uids from the validator's metagraph.
     Args:
         validator: Object with .metagraph (must have .n for total number of uids).

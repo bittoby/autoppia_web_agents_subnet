@@ -2,25 +2,24 @@ from __future__ import annotations
 
 import json
 import shutil
-from pathlib import Path
-from typing import List
 from datetime import datetime
+from pathlib import Path
 
 import bittensor as bt
-
-from autoppia_web_agents_subnet.utils.logging import ColoredLogger
-from autoppia_web_agents_subnet.validator.models import TaskWithProject
-from autoppia_web_agents_subnet.validator.evaluation.tasks import generate_tasks
-from autoppia_web_agents_subnet.validator.config import (
-    SEASON_SIZE_EPOCHS,
-    MINIMUM_START_BLOCK,
-    TASKS_PER_SEASON,
-)
-from autoppia_web_agents_subnet import SUBNET_IWA_VERSION
 
 # IWA imports for Task serialization
 from autoppia_iwa.src.data_generation.tasks.classes import Task
 from autoppia_iwa.src.demo_webs.config import demo_web_projects
+
+from autoppia_web_agents_subnet import SUBNET_IWA_VERSION
+from autoppia_web_agents_subnet.utils.logging import ColoredLogger
+from autoppia_web_agents_subnet.validator.config import (
+    MINIMUM_START_BLOCK,
+    SEASON_SIZE_EPOCHS,
+    TASKS_PER_SEASON,
+)
+from autoppia_web_agents_subnet.validator.evaluation.tasks import generate_tasks
+from autoppia_web_agents_subnet.validator.models import TaskWithProject
 
 
 class SeasonManager:
@@ -43,7 +42,7 @@ class SeasonManager:
         self.season_block_length = int(self.BLOCKS_PER_EPOCH * self.season_size_epochs)
         self.season_number: int | None = None
 
-        self.season_tasks: List[TaskWithProject] = []
+        self.season_tasks: list[TaskWithProject] = []
         self.task_generated_season: int | None = None
 
         # Create tasks directory if it doesn't exist
@@ -148,7 +147,7 @@ class SeasonManager:
             ColoredLogger.warning(f"Failed to migrate legacy tasks file for season {season_number}: {e}")
             return False
 
-    def _serialize_tasks(self, tasks: List[TaskWithProject]) -> List[dict]:
+    def _serialize_tasks(self, tasks: list[TaskWithProject]) -> list[dict]:
         """Serialize TaskWithProject objects to JSON-compatible format using native Task methods."""
         serialized = []
         for task_with_project in tasks:
@@ -163,7 +162,7 @@ class SeasonManager:
             )
         return serialized
 
-    def _deserialize_tasks(self, serialized_tasks: List[dict]) -> List[TaskWithProject]:
+    def _deserialize_tasks(self, serialized_tasks: list[dict]) -> list[TaskWithProject]:
         """Deserialize JSON data back to TaskWithProject objects using native Task methods."""
         tasks = []
         projects_map = {project.name: project for project in demo_web_projects}
@@ -259,7 +258,7 @@ class SeasonManager:
             ColoredLogger.error(f"Failed to load season tasks: {e}")
             return False
 
-    async def get_season_tasks(self, current_block: int, round_manager=None) -> List[TaskWithProject]:
+    async def get_season_tasks(self, current_block: int, round_manager=None) -> list[TaskWithProject]:
         """
         Get tasks for the current season.
 
@@ -307,13 +306,11 @@ class SeasonManager:
         ColoredLogger.success(f"✅ Generated and saved {len(self.season_tasks)} tasks")
         return self.season_tasks
 
-    async def generate_season_tasks(self, current_block: int, round_manager=None) -> List[TaskWithProject]:
+    async def generate_season_tasks(self, current_block: int, round_manager=None) -> list[TaskWithProject]:
         """Legacy method - kept for compatibility. Use get_season_tasks() instead."""
         return await self.get_season_tasks(current_block, round_manager)
 
     def should_start_new_season(self, current_block: int) -> bool:
         """Check if we're in a new season."""
         season_number = self.get_season_number(current_block)
-        if not self.task_generated_season or self.task_generated_season != season_number:
-            return True
-        return False
+        return bool(not self.task_generated_season or self.task_generated_season != season_number)

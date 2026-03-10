@@ -21,6 +21,7 @@ Usage:
 
 By default ``submit`` targets the NEXT round of the CURRENT season.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -65,10 +66,10 @@ def _run_async(coro: Awaitable[None]) -> None:
         asyncio.run(coro)
     except MinerCliError as exc:
         print_error(str(exc))
-        raise click.exceptions.Exit(1)
+        raise click.exceptions.Exit(1) from exc
     except Exception as exc:
         print_error(f"{type(exc).__name__}: {exc}")
-        raise click.exceptions.Exit(1)
+        raise click.exceptions.Exit(1) from exc
 
 
 @click.group(cls=StyledAliasGroup, invoke_without_command=True)
@@ -77,7 +78,7 @@ def _run_async(coro: Awaitable[None]) -> None:
 def cli(ctx: click.Context) -> None:
     """
     Submit miner agent metadata as an on-chain commitment.
-    
+
     """
     if ctx.invoked_subcommand is None:
         print_banner()

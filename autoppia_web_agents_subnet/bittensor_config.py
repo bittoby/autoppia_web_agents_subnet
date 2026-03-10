@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import sys
-import subprocess
 import argparse
+import subprocess
+import sys
 from pathlib import Path
-import bittensor as bt
 
+import bittensor as bt
 
 # ───────────────────────── utilities ───────────────────────── #
 
@@ -53,7 +53,7 @@ def add_shared_args(parser: argparse.ArgumentParser) -> None:
         "--fresh",
         action="store_true",
         default=False,
-        help="Clear local state and start fresh " "(miners: miner_state.json; " "validators: validated_epochs.json, jailed_coldkeys.json, reputation.json).",
+        help="Clear local state and start fresh (miners: miner_state.json; validators: validated_epochs.json, jailed_coldkeys.json, reputation.json).",
     )
 
 

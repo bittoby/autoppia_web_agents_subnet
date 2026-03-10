@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import time
 import asyncio
 import re
-from typing import Dict, Optional
+import time
 
 import bittensor as bt
 import numpy as np
@@ -12,14 +11,14 @@ from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 from autoppia_web_agents_subnet.validator import config as validator_config
 from autoppia_web_agents_subnet.validator.config import BURN_AMOUNT_PERCENTAGE, BURN_UID
 from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
+from autoppia_web_agents_subnet.validator.settlement.consensus import (
+    aggregate_scores_from_commitments,
+    publish_round_snapshot,
+)
+from autoppia_web_agents_subnet.validator.settlement.rewards import wta_rewards
 from autoppia_web_agents_subnet.validator.visualization.round_table import (
     render_round_summary_table,
 )
-from autoppia_web_agents_subnet.validator.settlement.consensus import (
-    publish_round_snapshot,
-    aggregate_scores_from_commitments,
-)
-from autoppia_web_agents_subnet.validator.settlement.rewards import wta_rewards
 
 
 def _eligibility_status_is_valid(status: object) -> bool:
@@ -125,10 +124,7 @@ class ValidatorSettlementMixin:
             agents_dict = {}
 
         raw_handshake_uids = getattr(self, "agents_on_first_handshake", [])
-        if isinstance(raw_handshake_uids, (list, tuple, set)):
-            handshake_uids = [uid for uid in raw_handshake_uids if isinstance(uid, int)]
-        else:
-            handshake_uids = []
+        handshake_uids = [uid for uid in raw_handshake_uids if isinstance(uid, int)] if isinstance(raw_handshake_uids, list | tuple | set) else []
 
         self.should_update_weights = all(bool(getattr(agents_dict.get(uid), "evaluated", False)) for uid in handshake_uids)
 
@@ -146,6 +142,7 @@ class ValidatorSettlementMixin:
             )
         else:
             st = await self._get_async_subtensor()
+            # Snapshot payloads are built from current/best run data inside publish_round_snapshot().
             await publish_round_snapshot(self, st=st, scores={})
 
             fetch_fraction = float(
@@ -271,8 +268,8 @@ class ValidatorSettlementMixin:
         self,
         *,
         reason: str,
-        weights: Optional[np.ndarray] = None,
-        success_message: Optional[str] = None,
+        weights: np.ndarray | None = None,
+        success_message: str | None = None,
         success_color: str = ColoredLogger.RED,
     ) -> None:
         """Override on-chain weights with burn-style weights and finalize the round."""
@@ -310,7 +307,7 @@ class ValidatorSettlementMixin:
         except Exception:
             final_weights = {}
 
-        avg_rewards: Dict[int, float] = {}
+        avg_rewards: dict[int, float] = {}
         try:
             run_uids = list(getattr(self, "current_agent_runs", {}).keys() or [])
         except Exception:
@@ -361,7 +358,7 @@ class ValidatorSettlementMixin:
                 ColoredLogger.YELLOW,
             )
 
-    async def _calculate_final_weights(self, consensus_rewards: Dict[int, float]):
+    async def _calculate_final_weights(self, consensus_rewards: dict[int, float]):
         """
         Calculate and set final weights using season-best winner persistence.
 
@@ -408,7 +405,7 @@ class ValidatorSettlementMixin:
         except Exception:
             round_number_in_season = 0
 
-        burn_reason: Optional[str] = None
+        burn_reason: str | None = None
         burn_pct = float(max(0.0, min(1.0, BURN_AMOUNT_PERCENTAGE)))
         if burn_pct >= 1.0:
             ColoredLogger.warning(
@@ -418,7 +415,7 @@ class ValidatorSettlementMixin:
             burn_reason = "burn (forced)"
 
         # Normalize incoming consensus rewards.
-        round_rewards: Dict[int, float] = {}
+        round_rewards: dict[int, float] = {}
         for uid, raw_reward in (consensus_rewards or {}).items():
             try:
                 uid_i = int(uid)
@@ -441,7 +438,7 @@ class ValidatorSettlementMixin:
         season_history = getattr(self, "_season_competition_history", None)
         if not isinstance(season_history, dict):
             season_history = {}
-            setattr(self, "_season_competition_history", season_history)
+            self._season_competition_history = season_history
 
         try:
             required_improvement_pct = max(float(getattr(validator_config, "LAST_WINNER_BONUS_PCT", 0.0)), 0.0)
@@ -471,7 +468,7 @@ class ValidatorSettlementMixin:
 
         stats_by_miner = agg_meta.get("stats_by_miner", {}) if isinstance(agg_meta, dict) else {}
 
-        def _snapshot_for_uid(uid: int, reward: float, *, weight: Optional[float] = None, fallback: Optional[dict] = None) -> dict:
+        def _snapshot_for_uid(uid: int, reward: float, *, weight: float | None = None, fallback: dict | None = None) -> dict:
             stats = stats_by_miner.get(int(uid), {}) if isinstance(stats_by_miner, dict) else {}
             if not isinstance(stats, dict):
                 stats = {}
@@ -491,7 +488,7 @@ class ValidatorSettlementMixin:
             round_key = int(round_number_in_season)
         else:
             existing_rounds: list[int] = []
-            for rk in rounds_state.keys():
+            for rk in rounds_state:
                 try:
                     existing_rounds.append(int(rk))
                 except Exception:
@@ -499,14 +496,14 @@ class ValidatorSettlementMixin:
             round_key = (max(existing_rounds) + 1) if existing_rounds else 1
 
         # Update per-miner best-of-season index and capture this round consensus rewards.
-        miner_rewards_for_round: Dict[int, float] = {}
+        miner_rewards_for_round: dict[int, float] = {}
         for uid, reward in round_rewards.items():
             uid_i = int(uid)
             reward_f = float(reward)
             miner_rewards_for_round[uid_i] = reward_f
 
-            prev_best_raw = best_by_miner.get(uid_i, None)
-            prev_best: Optional[float]
+            prev_best_raw = best_by_miner.get(uid_i)
+            prev_best: float | None
             try:
                 prev_best = float(prev_best_raw) if prev_best_raw is not None else None
             except Exception:
@@ -523,7 +520,7 @@ class ValidatorSettlementMixin:
                     best_snapshot_by_miner[uid_i] = _snapshot_for_uid(uid_i, reward_f)
 
         # Resolve current contender by best season reward.
-        best_uid: Optional[int] = None
+        best_uid: int | None = None
         best_reward = 0.0
         for uid, best in best_by_miner.items():
             try:
@@ -538,7 +535,7 @@ class ValidatorSettlementMixin:
                 best_uid = uid_i
 
         reigning_uid_raw = summary_state.get("current_winner_uid")
-        reigning_uid: Optional[int]
+        reigning_uid: int | None
         try:
             reigning_uid = int(reigning_uid_raw) if reigning_uid_raw is not None else None
         except Exception:
@@ -567,7 +564,7 @@ class ValidatorSettlementMixin:
                 existing_snapshot = best_snapshot_by_miner.get(reigning_uid) or best_snapshot_by_miner.get(str(reigning_uid))
                 leader_before_snapshot = _snapshot_for_uid(reigning_uid, reigning_reward, fallback=existing_snapshot if isinstance(existing_snapshot, dict) else None)
 
-        challenger_uid: Optional[int] = None
+        challenger_uid: int | None = None
         challenger_reward = 0.0
         if eligible_uids:
             ranked_uids = sorted(
@@ -589,10 +586,10 @@ class ValidatorSettlementMixin:
                 challenger_uid = int(ranked_uids[0])
                 challenger_reward = float(best_by_miner.get(challenger_uid, 0.0) or 0.0)
 
-        winner_uid: Optional[int] = None
+        winner_uid: int | None = None
         winner_reward = 0.0
         dethroned = False
-        required_reward_to_dethrone: Optional[float] = None
+        required_reward_to_dethrone: float | None = None
 
         if eligible_uids and best_uid is not None and best_reward > 0.0:
             winner_uid = best_uid
@@ -625,6 +622,8 @@ class ValidatorSettlementMixin:
                 "reward": float(winner_reward),
             },
             "miner_rewards": {int(uid): float(reward) for uid, reward in miner_rewards_for_round.items()},
+            # Backward-compatible alias used by older tests/report consumers.
+            "miner_scores": {int(uid): float(reward) for uid, reward in miner_rewards_for_round.items()},
             "decision": {
                 "top_candidate_uid": int(challenger_uid) if challenger_uid is not None else None,
                 "top_candidate_reward": float(challenger_reward),
@@ -762,7 +761,7 @@ class ValidatorSettlementMixin:
             # Count real task outcomes from the local current runs, not successful miners.
             tasks_completed = 0
             for miner_uid in getattr(self, "current_agent_runs", {}) or {}:
-                current_run = getattr(self, "_current_round_run_payload")(int(miner_uid))
+                current_run = self._current_round_run_payload(int(miner_uid))
                 if not isinstance(current_run, dict):
                     continue
                 tasks_completed += int(current_run.get("tasks_success", 0) or 0)

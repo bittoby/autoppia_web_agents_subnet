@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-import os
-import shutil
-import time
-import subprocess
-
+import contextlib
 import hashlib
+import os
 import secrets
+import shutil
+import subprocess
+import time
 from pathlib import Path
-from typing import Dict, Optional
 
-import httpx
 import bittensor as bt
+import httpx
 from docker.types import LogConfig
 
 from autoppia_web_agents_subnet.opensource.utils_docker import (
-    check_image,
     build_image,
+    check_image,
     cleanup_containers,
     ensure_network,
     garbage_collect_stale_containers,
@@ -28,20 +27,19 @@ from autoppia_web_agents_subnet.opensource.utils_git import (
     temp_workdir,
 )
 from autoppia_web_agents_subnet.validator.config import (
-    SANDBOX_NETWORK_NAME,
-    SANDBOX_GATEWAY_IMAGE,
-    SANDBOX_GATEWAY_HOST,
-    SANDBOX_GATEWAY_PORT,
-    SANDBOX_AGENT_IMAGE,
-    SANDBOX_AGENT_PORT,
-    SANDBOX_CLONE_TIMEOUT_SECONDS,
-    SANDBOX_KEEP_AGENT_CONTAINERS,
-    SANDBOX_AGENT_LOG_ERRORS,
-    SANDBOX_AGENT_LOG_DECISIONS,
-    SANDBOX_AGENT_RETURN_METRICS,
     MAX_TASK_DOLLAR_COST_USD,
+    SANDBOX_AGENT_IMAGE,
+    SANDBOX_AGENT_LOG_DECISIONS,
+    SANDBOX_AGENT_LOG_ERRORS,
+    SANDBOX_AGENT_PORT,
+    SANDBOX_AGENT_RETURN_METRICS,
+    SANDBOX_CLONE_TIMEOUT_SECONDS,
+    SANDBOX_GATEWAY_HOST,
+    SANDBOX_GATEWAY_IMAGE,
+    SANDBOX_GATEWAY_PORT,
+    SANDBOX_KEEP_AGENT_CONTAINERS,
+    SANDBOX_NETWORK_NAME,
 )
-
 
 _PROVIDER_TO_API_KEY_ENV = {
     "openai": "OPENAI_API_KEY",
@@ -120,7 +118,7 @@ def _ensure_writable_file(path: str, mode: int = 0o666) -> None:
         pass
 
 
-def _nano_cpus_from_env(name: str, *, default: Optional[float] = None) -> Optional[int]:
+def _nano_cpus_from_env(name: str, *, default: float | None = None) -> int | None:
     """
     Convert a CPU limit expressed as a float ("cpus") into Docker's nano_cpus int.
 
@@ -175,7 +173,7 @@ def _env_int(name: str, default: int) -> int:
         return int(default)
 
 
-def _docker_log_config(*, kind: str) -> Optional[LogConfig]:
+def _docker_log_config(*, kind: str) -> LogConfig | None:
     """
     Best-effort protection against log spam filling validator disk.
 
@@ -207,7 +205,7 @@ def _docker_log_config(*, kind: str) -> Optional[LogConfig]:
 
 
 class AgentInstance:
-    def __init__(self, uid: int, container, temp_dir: str, port: int, git_commit: Optional[str] = None):
+    def __init__(self, uid: int, container, temp_dir: str, port: int, git_commit: str | None = None):
         self.uid = uid
         self.container = container
         self.temp_dir = temp_dir
@@ -253,7 +251,7 @@ class SandboxManager:
 
     def __init__(self):
         self.client = get_client()
-        self._agents: Dict[int, AgentInstance] = {}
+        self._agents: dict[int, AgentInstance] = {}
         self.keep_agent_containers = bool(SANDBOX_KEEP_AGENT_CONTAINERS)
 
         # Optional namespace to allow multiple validators on the same host without
@@ -274,12 +272,10 @@ class SandboxManager:
         ensure_network(SANDBOX_NETWORK_NAME, internal=True)
         # Best-effort cleanup of stale Docker build intermediates (from older versions),
         # throttled and scoped to non-running containers.
-        try:
+        with contextlib.suppress(Exception):
             garbage_collect_stale_containers()
-        except Exception:
-            pass
 
-    def _agent_container_name(self, uid: int, *, git_commit: Optional[str] = None) -> str:
+    def _agent_container_name(self, uid: int, *, git_commit: str | None = None) -> str:
         """
         Return the container name for an agent.
 
@@ -394,10 +390,8 @@ class SandboxManager:
             pass
 
         if not self._wait_for_gateway_health():
-            try:
+            with contextlib.suppress(Exception):
                 stop_and_remove(self.gateway_container)
-            except Exception:
-                pass
             raise RuntimeError(f"Gateway failed health check at http://127.0.0.1:{SANDBOX_GATEWAY_PORT}/health")
 
         # Fail-fast if the gateway cannot reach its upstream providers. This avoids
@@ -405,10 +399,8 @@ class SandboxManager:
         try:
             self._validate_gateway_upstream_egress()
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 stop_and_remove(self.gateway_container)
-            except Exception:
-                pass
             raise
 
     def _validate_gateway_upstream_egress(self) -> None:
@@ -533,7 +525,7 @@ class SandboxManager:
         clone_repo(github_url, repo_dir, timeout=SANDBOX_CLONE_TIMEOUT_SECONDS)
         return repo_dir
 
-    def _start_container(self, uid: int, temp_dir: str, *, git_commit: Optional[str] = None) -> AgentInstance:
+    def _start_container(self, uid: int, temp_dir: str, *, git_commit: str | None = None) -> AgentInstance:
         container_name = self._agent_container_name(uid, git_commit=git_commit)
         # In normal mode we replace the stable per-uid container name. In debug
         # keep mode we use unique names; cleanup_containers() is harmless no-op.
@@ -558,10 +550,8 @@ class SandboxManager:
 
         # Ensure the nested mountpoint exists inside the bind-mounted repo dir
         # so Docker can mount /app/logs even when /app itself is read-only.
-        try:
+        with contextlib.suppress(Exception):
             os.makedirs(os.path.join(temp_dir, "logs"), exist_ok=True)
-        except Exception:
-            pass
 
         labels = {
             "autoppia.sandbox": "true",
@@ -620,10 +610,8 @@ class SandboxManager:
                     run_kwargs.pop("nano_cpus", None)
                     continue
                 raise
-        try:
+        with contextlib.suppress(Exception):
             container.reload()
-        except Exception:
-            pass
         return AgentInstance(
             uid=uid,
             container=container,
@@ -632,7 +620,7 @@ class SandboxManager:
             git_commit=git_commit,
         )
 
-    def deploy_agent(self, uid: int, github_url: str) -> Optional[AgentInstance]:
+    def deploy_agent(self, uid: int, github_url: str) -> AgentInstance | None:
         try:
             bt.logging.info(f"Deploying agent {uid} from {github_url}...")
             if not check_image(self.sandbox_image):
@@ -696,27 +684,19 @@ class SandboxManager:
         if self.keep_agent_containers:
             # Debug/testing: preserve the container + workdir so operators can inspect
             # stdout logs (`docker logs <name>`) and the cloned repo under temp_dir.
-            try:
+            with contextlib.suppress(Exception):
                 agent.container.stop(timeout=10)
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 bt.logging.warning(f"[sandbox] Preserving agent container for uid={uid}: name={getattr(agent.container, 'name', '')} temp_dir={agent.temp_dir}")
-            except Exception:
-                pass
             return
 
         stop_and_remove(agent.container)
-        try:
+        with contextlib.suppress(Exception):
             shutil.rmtree(agent.temp_dir, ignore_errors=True)
-        except Exception:
-            pass
         # Best-effort container garbage collection so validators don't accumulate
         # stopped/created intermediates over time.
-        try:
+        with contextlib.suppress(Exception):
             garbage_collect_stale_containers()
-        except Exception:
-            pass
 
     def cleanup_all_agents(self):
         for uid in list(self._agents.keys()):
@@ -745,7 +725,7 @@ class SandboxManager:
             return False
         return False
 
-    def get_usage_for_task(self, task_id: str) -> Optional[dict]:
+    def get_usage_for_task(self, task_id: str) -> dict | None:
         try:
             gateway_url = f"http://localhost:{SANDBOX_GATEWAY_PORT}"
             resp = httpx.get(

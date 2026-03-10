@@ -51,24 +51,24 @@ ROUND_START_PATTERN = re.compile(r'🚦 Starting Round:\s*(\d+)')
 
 def process_line(line: str):
     global current_round, current_round_file
-    
+
     # Write to all.log
     with open(ALL_LOG, 'a') as f:
         f.write(line)
-    
+
     # Check if new round starts
     match = ROUND_START_PATTERN.search(line)
     if match:
         new_round = int(match.group(1))
-        
+
         if current_round_file:
             current_round_file.close()
-        
+
         current_round = new_round
         round_log = ROUNDS_DIR / f"round_{current_round}.log"
         current_round_file = open(round_log, 'a')
         print(f"[{datetime.now()}] Started logging round {current_round}", file=sys.stderr)
-    
+
     # Write to current round file
     if current_round_file:
         current_round_file.write(line)
@@ -78,7 +78,7 @@ def main():
     print(f"[{datetime.now()}] Log splitter started", file=sys.stderr)
     print(f"[{datetime.now()}] All logs: {ALL_LOG}", file=sys.stderr)
     print(f"[{datetime.now()}] Round logs: {ROUNDS_DIR}/", file=sys.stderr)
-    
+
     for line in sys.stdin:
         try:
             process_line(line)

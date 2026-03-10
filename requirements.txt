@@ -1,13 +1,13 @@
 pydantic
 rich
 docker
-pytest
+httpx
+pytest>=7.2.0
 pytest-asyncio
 pytest-mock
 psutil
 hypothesis
 numpy
-setuptools
 loguru
 xmldiff
 filelock

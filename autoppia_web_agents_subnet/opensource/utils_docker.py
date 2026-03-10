@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import time
-from datetime import datetime, timezone
-from typing import Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime
 
 import docker
 from docker.errors import NotFound
@@ -29,9 +30,7 @@ def ensure_network(name: str, internal: bool = True) -> None:
         allow_non_internal = os.getenv("SANDBOX_ALLOW_NON_INTERNAL_NETWORK", "false").lower() == "true"
         if internal and not existing_internal and not allow_non_internal:
             raise RuntimeError(
-                f"Docker network '{name}' exists but is not internal. "
-                "Refusing to use it for sandbox isolation. "
-                "Remove/recreate the network or set SANDBOX_ALLOW_NON_INTERNAL_NETWORK=true to override."
+                f"Docker network '{name}' exists but is not internal. Refusing to use it for sandbox isolation. Remove/recreate the network or set SANDBOX_ALLOW_NON_INTERNAL_NETWORK=true to override."
             )
     except NotFound:
         client.networks.create(name, driver="bridge", internal=internal)
@@ -83,7 +82,7 @@ def _docker_created_epoch(created: str) -> float:
             break
     s = s.split(".", 1)[0]
     try:
-        dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
         return float(dt.timestamp())
     except Exception:
         return 0.0
@@ -160,10 +159,7 @@ def garbage_collect_stale_containers(
 
             cmd = cfg.get("Cmd") or []
             image = str(cfg.get("Image") or "")
-            if isinstance(cmd, list):
-                cmd_s = " ".join(str(x) for x in cmd)
-            else:
-                cmd_s = str(cmd)
+            cmd_s = " ".join(str(x) for x in cmd) if isinstance(cmd, list) else str(cmd)
 
             # Heuristic: Docker build step containers typically have '#(nop)' in Cmd and
             # refer to an untagged digest image. This is intentionally conservative so
@@ -183,16 +179,10 @@ def garbage_collect_stale_containers(
 
 
 def stop_and_remove(container) -> None:
-    try:
+    with contextlib.suppress(Exception):
         container.stop(timeout=10)
-    except Exception as e:
-        # Ignore errors when stopping (container might already be stopped)
-        pass
-    try:
+    with contextlib.suppress(Exception):
         container.remove(force=True)
-    except Exception as e:
-        # Ignore errors when removing (container might not exist)
-        pass
 
 
 def cleanup_containers(names: Iterable[str]) -> None:
@@ -204,7 +194,7 @@ def cleanup_containers(names: Iterable[str]) -> None:
         except NotFound:
             # Container doesn't exist, nothing to clean up
             continue
-        except Exception as e:
+        except Exception:
             # Ignore any other errors (connection issues, etc.)
             # The container might already be stopped or Docker might be unavailable
             continue

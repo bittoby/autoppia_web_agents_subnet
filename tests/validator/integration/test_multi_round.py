@@ -4,8 +4,9 @@ Integration tests for multi-round scenarios.
 Tests validator behavior across multiple rounds.
 """
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
 
 
 @pytest.mark.integration
@@ -14,7 +15,7 @@ class TestMultiRound:
     """Test multi-round scenarios."""
 
     async def test_multiple_rounds_maintain_state_correctly(self, dummy_validator, season_tasks):
-        from tests.conftest import _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_round_start_mixin, _bind_settlement_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
         dummy_validator = _bind_settlement_mixin(dummy_validator)
@@ -51,7 +52,7 @@ class TestMultiRound:
         dummy_validator.season_manager.should_start_new_season = Mock(return_value=True)
         dummy_validator.season_manager.generate_season_tasks = AsyncMock(return_value=[])
 
-        from tests.conftest import _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_round_start_mixin, _bind_settlement_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
         dummy_validator = _bind_settlement_mixin(dummy_validator)
@@ -67,7 +68,7 @@ class TestMultiRound:
         validator.season_manager.generate_season_tasks.assert_called_once()
 
     async def test_season_winner_persists_across_rounds_until_threshold(self, dummy_validator):
-        from tests.conftest import _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_round_start_mixin, _bind_settlement_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
         dummy_validator = _bind_settlement_mixin(dummy_validator)
@@ -93,7 +94,7 @@ class TestMultiRound:
                 assert validator._last_round_winner_uid == 2
 
     async def test_state_resets_between_rounds(self, dummy_validator):
-        from tests.conftest import _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_round_start_mixin, _bind_settlement_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
         dummy_validator = _bind_settlement_mixin(dummy_validator)
@@ -132,7 +133,7 @@ class TestSeasonTransitions:
         dummy_validator.season_manager.generate_season_tasks = AsyncMock(return_value=[])
         dummy_validator.season_manager.should_start_new_season = Mock(return_value=True)
 
-        from tests.conftest import _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_round_start_mixin, _bind_settlement_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
         dummy_validator = _bind_settlement_mixin(dummy_validator)
@@ -161,7 +162,7 @@ class TestSeasonTransitions:
         dummy_validator.season_manager.generate_season_tasks = AsyncMock(return_value=[])
         dummy_validator.season_manager.should_start_new_season = Mock(return_value=True)
 
-        from tests.conftest import _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_round_start_mixin, _bind_settlement_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
         dummy_validator = _bind_settlement_mixin(dummy_validator)
@@ -190,7 +191,7 @@ class TestRoundBoundaries:
     """Test round boundary behavior."""
 
     async def test_late_round_start_waits_for_next_boundary(self, dummy_validator):
-        from tests.conftest import _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_round_start_mixin, _bind_settlement_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
         dummy_validator = _bind_settlement_mixin(dummy_validator)
@@ -208,7 +209,7 @@ class TestRoundBoundaries:
             validator._wait_until_specific_block.assert_called_once()
 
     async def test_early_round_start_continues_forward(self, dummy_validator):
-        from tests.conftest import _bind_settlement_mixin, _bind_round_start_mixin
+        from tests.conftest import _bind_round_start_mixin, _bind_settlement_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
         dummy_validator = _bind_settlement_mixin(dummy_validator)

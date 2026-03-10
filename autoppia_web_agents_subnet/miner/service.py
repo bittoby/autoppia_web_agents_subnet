@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .utils import compute_current_round, compute_next_round, compute_season, detect_github_ref_kind
 from .ui import (
     console,
     print_banner,
@@ -13,6 +12,7 @@ from .ui import (
     show_commitment_panel,
     show_wallet_panel,
 )
+from .utils import compute_current_round, compute_next_round, compute_season, detect_github_ref_kind
 
 DEFAULT_NETUID = 36
 
@@ -49,10 +49,7 @@ def _validate_submit_inputs(
 
     normalized, ref = normalize_and_validate_github_url(github, require_ref=True)
     if normalized is None or not ref:
-        raise MinerCliError(
-            f"Invalid GitHub URL: {github}\n"
-            "       Must be https://github.com/owner/repo/tree/<ref> or /commit/<sha>."
-        )
+        raise MinerCliError(f"Invalid GitHub URL: {github}\n       Must be https://github.com/owner/repo/tree/<ref> or /commit/<sha>.")
 
     stripped_name = agent_name.strip()
     if not stripped_name:
@@ -79,6 +76,7 @@ async def run_submit(
     season: int | None,
 ) -> None:
     import bittensor as bt
+
     from autoppia_web_agents_subnet.utils.commitments import read_my_plain_json, write_plain_commitment_json
 
     print_banner()
@@ -128,6 +126,7 @@ async def run_submit(
 
 async def run_show(*, options: CommonOptions) -> None:
     import bittensor as bt
+
     from autoppia_web_agents_subnet.utils.commitments import read_my_plain_json
 
     print_banner()

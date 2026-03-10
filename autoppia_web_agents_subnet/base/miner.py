@@ -1,11 +1,10 @@
 # The MIT License (MIT)
 # (c) 2023 Yuma Rao — modified for Autoppia Web Agents Subnet
 
-import time
 import asyncio
 import threading
+import time
 import traceback
-import typing
 
 import bittensor as bt
 
@@ -28,13 +27,9 @@ class BaseMinerNeuron(BaseNeuron):
 
         # Warn if allowing incoming requests from anyone.
         if not self.config.blacklist.force_validator_permit:
-            bt.logging.warning(
-                "You are allowing non-validators to send requests to your miner. This is a security risk."
-            )
+            bt.logging.warning("You are allowing non-validators to send requests to your miner. This is a security risk.")
         if self.config.blacklist.allow_non_registered:
-            bt.logging.warning(
-                "You are allowing non-registered entities to send requests to your miner. This is a security risk."
-            )
+            bt.logging.warning("You are allowing non-registered entities to send requests to your miner. This is a security risk.")
 
         # The axon handles request processing, allowing validators to send this miner requests.
         self.axon = bt.axon(
@@ -54,7 +49,7 @@ class BaseMinerNeuron(BaseNeuron):
         # Runtime flags / threading
         self.should_exit: bool = False
         self.is_running: bool = False
-        self.thread: typing.Optional[threading.Thread] = None
+        self.thread: threading.Thread | None = None
         self.lock = asyncio.Lock()
 
     # ─────────────────────────── Runner ───────────────────────────
@@ -68,9 +63,7 @@ class BaseMinerNeuron(BaseNeuron):
         """
         self.sync()
 
-        bt.logging.info(
-            f"Serving miner axon {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
-        )
+        bt.logging.info(f"Serving miner axon {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}")
         self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
         bt.logging.info("🔧 Axon configured, about to start listening...")
         self.axon.start()
@@ -80,10 +73,7 @@ class BaseMinerNeuron(BaseNeuron):
 
         try:
             while not self.should_exit:
-                while (
-                    self.block - self.metagraph.last_update[self.uid]
-                    < self.config.neuron.epoch_length
-                ):
+                while self.block - self.metagraph.last_update[self.uid] < self.config.neuron.epoch_length:
                     time.sleep(1)
                     if self.should_exit:
                         break
@@ -134,7 +124,7 @@ class BaseMinerNeuron(BaseNeuron):
 
     # ─────────────────────── Blacklists ───────────────────────
 
-    async def blacklist(self, synapse: StartRoundSynapse) -> typing.Tuple[bool, str]:
+    async def blacklist(self, synapse: StartRoundSynapse) -> tuple[bool, str]:
         if synapse.dendrite is None or synapse.dendrite.hotkey is None:
             bt.logging.warning("Received a request without a dendrite or hotkey.")
             return True, "Missing dendrite or hotkey"
@@ -142,20 +132,16 @@ class BaseMinerNeuron(BaseNeuron):
         validator_hotkey = synapse.dendrite.hotkey
 
         # Ensure hotkey is recognized.
-        if (
-            not self.config.blacklist.allow_non_registered
-            and validator_hotkey not in self.metagraph.hotkeys
-        ):
+        if not self.config.blacklist.allow_non_registered and validator_hotkey not in self.metagraph.hotkeys:
             bt.logging.warning(f"Unrecognized hotkey: {validator_hotkey}")
             return True, f"Unrecognized hotkey: {validator_hotkey}"
 
         uid = self.metagraph.hotkeys.index(validator_hotkey)
 
         # Optionally force only validators
-        if self.config.blacklist.force_validator_permit:
-            if not self.metagraph.validator_permit[uid]:
-                bt.logging.warning(f"Blacklisted Non-Validator {validator_hotkey}")
-                return True, f"Non-validator hotkey: {validator_hotkey}"
+        if self.config.blacklist.force_validator_permit and not self.metagraph.validator_permit[uid]:
+            bt.logging.warning(f"Blacklisted Non-Validator {validator_hotkey}")
+            return True, f"Non-validator hotkey: {validator_hotkey}"
 
         # Check minimum stake
         stake = self.metagraph.S[uid]

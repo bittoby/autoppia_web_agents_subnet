@@ -6,8 +6,6 @@ These are the communication protocols used in Bittensor.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from bittensor import Synapse
 
 
@@ -27,18 +25,19 @@ class StartRoundSynapse(Synapse):
       - agent_image: URL (or data URI) to agent logo/avatar.
       - github_url: repository with miner/agent code.
     """
+
     # Request (validator -> miner)
     version: str = ""
     round_id: str
-    validator_id: Optional[str] = None
-    note: Optional[str] = None
+    validator_id: str | None = None
+    note: str | None = None
 
     # Response (miner -> validator)
-    agent_name: Optional[str] = None
-    github_url: Optional[str] = None
-    agent_image: Optional[str] = None
+    agent_name: str | None = None
+    github_url: str | None = None
+    agent_image: str | None = None
 
-    model_config = {"extra": "allow", "arbitrary_types_allowed": True}
+    model_config = {"extra": "allow", "arbitrary_types_allowed": True}  # noqa: RUF012
 
-    def deserialize(self) -> "StartRoundSynapse":
+    def deserialize(self) -> StartRoundSynapse:
         return self

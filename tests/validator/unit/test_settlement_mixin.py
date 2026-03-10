@@ -4,9 +4,11 @@ Unit tests for ValidatorSettlementMixin.
 Tests settlement phase, consensus, and weight finalization.
 """
 
-import pytest
+from unittest.mock import AsyncMock, Mock, patch
+
 import numpy as np
-from unittest.mock import Mock, AsyncMock, patch
+import pytest
+
 from autoppia_web_agents_subnet.validator.round_manager import RoundPhase
 
 
@@ -131,7 +133,7 @@ class TestConsensusPublishing:
 
         dummy_validator = _bind_settlement_mixin(dummy_validator)
 
-        """Test that publish_round_snapshot is called with correct scores."""
+        """Test that publish_round_snapshot is called during settlement."""
         dummy_validator._get_async_subtensor = AsyncMock(return_value=Mock())
         dummy_validator._wait_until_specific_block = AsyncMock()
         dummy_validator._calculate_final_weights = AsyncMock()
@@ -150,14 +152,13 @@ class TestConsensusPublishing:
 
                 await dummy_validator._run_settlement_phase(agents_evaluated=2)
 
-                # Should have called publish with scores
+                # Settlement should publish a snapshot. The payload is built inside
+                # publish_round_snapshot from current/best run data, so the helper
+                # no longer depends on the deprecated `scores` argument.
                 mock_publish.assert_called_once()
                 call_args = mock_publish.call_args
                 scores = call_args[1]["scores"]
-                assert "1" in scores
-                assert "2" in scores
-                assert scores["1"] == 0.8
-                assert scores["2"] == 0.6
+                assert scores == {}
 
 
 @pytest.mark.unit

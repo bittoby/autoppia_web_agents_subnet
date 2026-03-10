@@ -1,8 +1,8 @@
+import contextlib
 import logging
 import os
-from pathlib import Path
 import re
-from typing import Optional
+from pathlib import Path
 
 import bittensor as bt
 
@@ -23,7 +23,7 @@ class ColoredLogger:
     ORANGE = "orange"
     RESET = "reset"
 
-    _COLORS = {
+    _COLORS = {  # noqa: RUF012
         "blue": "\033[94m",
         "yellow": "\033[93m",
         "red": "\033[91m",
@@ -38,11 +38,11 @@ class ColoredLogger:
         "purple": "\033[35m",
     }
 
-    _round_log_file: Optional[Path] = None
-    _round_log_handler: Optional[logging.Handler] = None
-    _round_log_logger: Optional[logging.Logger] = None
-    _round_log_bt_logger: Optional[logging.Logger] = None
-    _round_log_loguru_id: Optional[int] = None
+    _round_log_file: Path | None = None
+    _round_log_handler: logging.Handler | None = None
+    _round_log_logger: logging.Logger | None = None
+    _round_log_bt_logger: logging.Logger | None = None
+    _round_log_loguru_id: int | None = None
 
     @staticmethod
     def _resolve_round_log_logger() -> logging.Logger:
@@ -57,14 +57,10 @@ class ColoredLogger:
                 ColoredLogger._round_log_bt_logger,
             ):
                 if logger is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         logger.removeHandler(handler)
-                    except Exception:
-                        pass
-            try:
+            with contextlib.suppress(Exception):
                 handler.close()
-            except Exception:
-                pass
         ColoredLogger._round_log_handler = None
         ColoredLogger._round_log_logger = None
         ColoredLogger._round_log_bt_logger = None
@@ -148,7 +144,7 @@ class ColoredLogger:
         bt_logger.addHandler(handler)
 
         # IWA and other code use loguru; add a sink so those logs go to the same file.
-        loguru_id: Optional[int] = None
+        loguru_id: int | None = None
         try:
             from loguru import logger as _loguru
 
@@ -169,7 +165,7 @@ class ColoredLogger:
         ColoredLogger._round_log_loguru_id = loguru_id
 
     @staticmethod
-    def get_round_log_file() -> Optional[str]:
+    def get_round_log_file() -> str | None:
         if ColoredLogger._round_log_file is None:
             return None
         return str(ColoredLogger._round_log_file)

@@ -4,13 +4,14 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, time as dtime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, TypeVar
-import re
+from typing import Any, TypeVar
 
 import bittensor as bt
 import httpx
@@ -102,19 +103,19 @@ def generate_validator_round_id(season_number: int, round_number_in_season: int)
     return f"validator_round_{season_number}_{round_number_in_season}_{_uuid_suffix()}"
 
 
-def generate_agent_run_id(miner_uid: Optional[int]) -> str:
+def generate_agent_run_id(miner_uid: int | None) -> str:
     suffix = _uuid_suffix()
     prefix = f"agent_run_{miner_uid}_" if miner_uid is not None else "agent_run_"
     return f"{prefix}{suffix}"
 
 
-def generate_evaluation_id(task_id: str, miner_uid: Optional[int]) -> str:
+def generate_evaluation_id(task_id: str, miner_uid: int | None) -> str:
     suffix = _uuid_suffix()
     miner_part = f"{miner_uid}_" if miner_uid is not None else ""
     return f"evaluation_{miner_part}{task_id}_{suffix}"
 
 
-def generate_task_solution_id(task_id: str, miner_uid: Optional[int]) -> str:
+def generate_task_solution_id(task_id: str, miner_uid: int | None) -> str:
     suffix = _uuid_suffix()
     miner_part = f"{miner_uid}_" if miner_uid is not None else ""
     return f"task_solution_{miner_part}{task_id}_{suffix}"
@@ -127,12 +128,12 @@ class IWAPClient:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
+        base_url: str | None = None,
         *,
         timeout: float = 90.0,
-        client: Optional[httpx.AsyncClient] = None,
-        backup_dir: Optional[Path] = None,
-        auth_provider: Optional[Callable[[], Dict[str, str]]] = None,
+        client: httpx.AsyncClient | None = None,
+        backup_dir: Path | None = None,
+        auth_provider: Callable[[], dict[str, str]] | None = None,
     ) -> None:
         resolved_base_url = (base_url or os.getenv("IWAP_API_BASE_URL", "http://217.154.10.168:8080")).rstrip("/")
         self._client = client or httpx.AsyncClient(base_url=resolved_base_url, timeout=timeout)
@@ -157,10 +158,10 @@ class IWAPClient:
         if self._owns_client:
             await self._client.aclose()
 
-    def set_auth_provider(self, provider: Optional[Callable[[], Dict[str, str]]]) -> None:
+    def set_auth_provider(self, provider: Callable[[], dict[str, str]] | None) -> None:
         self._auth_provider = provider
 
-    def _resolve_auth_headers(self) -> Dict[str, str]:
+    def _resolve_auth_headers(self) -> dict[str, str]:
         if not self._auth_provider:
             raise RuntimeError("IWAP auth provider is not configured")
         try:
@@ -168,7 +169,7 @@ class IWAPClient:
         except Exception:
             bt.logging.error("IWAP | Auth provider failed to generate headers", exc_info=True)
             raise
-        sanitized: Dict[str, str] = {}
+        sanitized: dict[str, str] = {}
         for key, value in headers.items():
             if value is None:
                 continue
@@ -182,7 +183,7 @@ class IWAPClient:
         validator_round: models.ValidatorRoundIWAP,
         validator_snapshot: models.ValidatorSnapshotIWAP,
         force: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         payload = {
             "validator_identity": validator_identity.to_payload(),
             "validator_round": validator_round.to_payload(),
@@ -218,7 +219,7 @@ class IWAPClient:
         validator_round_id: str,
         tasks: Iterable[models.TaskIWAP],
         force: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         task_payloads = [task.to_payload() for task in tasks]
         payload = {"tasks": task_payloads}
         from autoppia_web_agents_subnet.platform.utils.iwa_core import log_iwap_phase
@@ -252,7 +253,7 @@ class IWAPClient:
         miner_identity: models.MinerIdentityIWAP,
         miner_snapshot: models.MinerSnapshotIWAP,
         force: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         payload = {
             "agent_run": agent_run.to_payload(),
             "miner_identity": miner_identity.to_payload(),
@@ -288,7 +289,7 @@ class IWAPClient:
             agent_run.agent_run_id = response["agent_run_id"]
         return response
 
-    async def upload_evaluation_gif(self, evaluation_id: str, gif_bytes: bytes) -> Optional[str]:
+    async def upload_evaluation_gif(self, evaluation_id: str, gif_bytes: bytes) -> str | None:
         if not gif_bytes:
             raise ValueError("GIF payload is empty")
 
@@ -317,8 +318,8 @@ class IWAPClient:
                 body = exc.response.text
                 log_gif_event(f"Upload failed - POST {path}{attempt_suffix} returned {exc.response.status_code}: {body}", level="error")
                 raise
-            except Exception as exc:  # noqa: BLE001
-                log_gif_event(f"Upload failed unexpectedly - POST {path}{attempt_suffix}: {str(exc)}", level="error", exc_info=True)
+            except Exception as exc:
+                log_gif_event(f"Upload failed unexpectedly - POST {path}{attempt_suffix}: {exc!s}", level="error", exc_info=True)
                 raise
 
         response = await self._with_retry(attempt, context="upload_evaluation_gif")
@@ -327,7 +328,7 @@ class IWAPClient:
             payload = response.json()
             log_gif_event(f"Response payload: {payload}", level="debug")
         except Exception as e:
-            log_gif_event(f"Received non-JSON response for evaluation_id={evaluation_id}: {str(e)}", level="warning")
+            log_gif_event(f"Received non-JSON response for evaluation_id={evaluation_id}: {e!s}", level="warning")
             return None
 
         gif_url = None
@@ -442,8 +443,8 @@ class IWAPClient:
         *,
         validator_round_id: str,
         agent_run_id: str,
-        evaluations: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        evaluations: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """
         Submit multiple evaluations in a single batch request.
 
@@ -482,7 +483,7 @@ class IWAPClient:
         *,
         validator_round_id: str,
         finish_request: models.FinishRoundIWAP,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         from autoppia_web_agents_subnet.platform.utils.iwa_core import log_iwap_phase
 
         log_iwap_phase("finish_round", f"Preparing request for validator_round_id={validator_round_id} summary={finish_request.summary}", level="debug")
@@ -496,7 +497,7 @@ class IWAPClient:
             round_number_in_season=round_number_in_season,
         )
 
-    async def auth_check(self) -> Dict[str, Any]:
+    async def auth_check(self) -> dict[str, Any]:
         from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 
         ColoredLogger.info("IWAP | [Auth] Checking authentication", color=ColoredLogger.GOLD)
@@ -507,7 +508,7 @@ class IWAPClient:
         *,
         validator_identity: models.ValidatorIdentityIWAP,
         validator_snapshot: models.ValidatorSnapshotIWAP,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Sync config_season_round to backend. Backend persists only if caller is main validator.
         Safe to call every round start.
@@ -541,7 +542,7 @@ class IWAPClient:
             context="sync_runtime_config",
         )
 
-    async def upload_task_log(self, payload: Dict[str, Any]) -> Optional[str]:
+    async def upload_task_log(self, payload: dict[str, Any]) -> str | None:
         """
         Upload a per-task execution log to IWAP for S3 persistence.
         """
@@ -596,15 +597,15 @@ class IWAPClient:
         *,
         validator_round_id: str,
         content: str,
-        season_number: Optional[int] = None,
-        round_number_in_season: Optional[int] = None,
-        validator_uid: Optional[int] = None,
-        validator_hotkey: Optional[str] = None,
-    ) -> Optional[str]:
+        season_number: int | None = None,
+        round_number_in_season: int | None = None,
+        validator_uid: int | None = None,
+        validator_hotkey: str | None = None,
+    ) -> str | None:
         """
         Upload the validator round raw log to IWAP for S3 persistence.
         """
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "validator_round_id": validator_round_id,
             "season": season_number,
             "round_in_season": round_number_in_season,
@@ -654,7 +655,7 @@ class IWAPClient:
         because they indicate client-side issues that a retry cannot resolve.
         """
         delays = (0.5, 1.0, 3.0)
-        last_exc: Optional[BaseException] = None
+        last_exc: BaseException | None = None
 
         for attempt in range(len(delays) + 1):
             try:
@@ -664,7 +665,7 @@ class IWAPClient:
                 if status_code is not None and 400 <= status_code < 500:
                     raise
                 last_exc = exc
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 last_exc = exc
 
             if attempt == len(delays):
@@ -688,12 +689,12 @@ class IWAPClient:
     async def _post(
         self,
         path: str,
-        payload: Dict[str, object],
+        payload: dict[str, object],
         *,
         context: str,
-        season_number: Optional[int] = None,
-        round_number_in_season: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        season_number: int | None = None,
+        round_number_in_season: int | None = None,
+    ) -> dict[str, Any]:
         sanitized_payload = _sanitize_json(payload)
         self._backup_payload(
             context,
@@ -703,10 +704,7 @@ class IWAPClient:
         )
         auth_headers = self._resolve_auth_headers()
 
-        if isinstance(sanitized_payload, dict):
-            payload_keys = list(sanitized_payload.keys())
-        else:
-            payload_keys = []
+        payload_keys = list(sanitized_payload.keys()) if isinstance(sanitized_payload, dict) else []
         try:
             payload_len = len(str(sanitized_payload))
         except Exception:
@@ -766,12 +764,12 @@ class IWAPClient:
     async def _post_multipart(
         self,
         path: str,
-        data: Dict[str, Any],
-        files: Dict[str, bytes],
+        data: dict[str, Any],
+        files: dict[str, bytes],
         *,
         context: str,
-        season_number: Optional[int] = None,
-        round_number_in_season: Optional[int] = None,
+        season_number: int | None = None,
+        round_number_in_season: int | None = None,
     ) -> None:
         """
         Send multipart/form-data request with JSON data and binary files.
@@ -784,7 +782,7 @@ class IWAPClient:
             season_number=season_number,
             round_number_in_season=round_number_in_season,
         )
-        body_parts: List[object] = []
+        body_parts: list[object] = []
 
         for key, value in sanitized_data.items():
             body_parts.append(f"--{boundary}")
@@ -856,7 +854,7 @@ class IWAPClient:
 
         await self._with_retry(attempt, context=context)
 
-    def _extract_round_info_from_validator_round_id(self, validator_round_id: str) -> tuple[Optional[int], Optional[int]]:
+    def _extract_round_info_from_validator_round_id(self, validator_round_id: str) -> tuple[int | None, int | None]:
         if not validator_round_id:
             return None, None
         pattern = r"^validator_round_(\d+)_(\d+)_.*$"
@@ -870,7 +868,7 @@ class IWAPClient:
                 return None, None
         return None, None
 
-    def _to_int(self, value: Optional[object]) -> Optional[int]:
+    def _to_int(self, value: object | None) -> int | None:
         if value is None:
             return None
         try:
@@ -878,7 +876,7 @@ class IWAPClient:
         except Exception:
             return None
 
-    def _extract_round_info_from_payload(self, payload: Dict[str, Any]) -> tuple[Optional[int], Optional[int]]:
+    def _extract_round_info_from_payload(self, payload: dict[str, Any]) -> tuple[int | None, int | None]:
         if not isinstance(payload, dict):
             return None, None
 
@@ -908,9 +906,9 @@ class IWAPClient:
     def _backup_payload(
         self,
         context: str,
-        payload: Dict[str, object],
-        season_number: Optional[int] = None,
-        round_number_in_season: Optional[int] = None,
+        payload: dict[str, object],
+        season_number: int | None = None,
+        round_number_in_season: int | None = None,
     ) -> None:
         _ = (context, payload, season_number, round_number_in_season)
         return
@@ -918,10 +916,10 @@ class IWAPClient:
 
 def build_miner_identity(
     *,
-    miner_uid: Optional[int],
-    miner_hotkey: Optional[str],
-    miner_coldkey: Optional[str] = None,
-    agent_key: Optional[str] = None,
+    miner_uid: int | None,
+    miner_hotkey: str | None,
+    miner_coldkey: str | None = None,
+    agent_key: str | None = None,
 ) -> models.MinerIdentityIWAP:
     return models.MinerIdentityIWAP(
         uid=miner_uid,
@@ -931,7 +929,7 @@ def build_miner_identity(
     )
 
 
-def _normalized_optional(value: Optional[object]) -> Optional[str]:
+def _normalized_optional(value: object | None) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
@@ -941,21 +939,18 @@ def _normalized_optional(value: Optional[object]) -> Optional[str]:
 def build_miner_snapshot(
     *,
     validator_round_id: str,
-    miner_uid: Optional[int],
-    miner_hotkey: Optional[str],
-    miner_coldkey: Optional[str],
-    agent_key: Optional[str],
-    handshake_payload: Optional[object],
+    miner_uid: int | None,
+    miner_hotkey: str | None,
+    miner_coldkey: str | None,
+    agent_key: str | None,
+    handshake_payload: object | None,
     now_ts: float,
 ) -> models.MinerSnapshotIWAP:
     """
     Create a MinerSnapshotIWAP from handshake data.
     """
     raw_name = getattr(handshake_payload, "agent_name", None)
-    if raw_name is None or not str(raw_name).strip():
-        agent_name = "Benchmark Agent" if miner_uid is None else "Unknown"
-    else:
-        agent_name = str(raw_name).strip()
+    agent_name = ("Benchmark Agent" if miner_uid is None else "Unknown") if raw_name is None or not str(raw_name).strip() else str(raw_name).strip()
 
     if MAX_MINER_AGENT_NAME_LENGTH and len(agent_name) > MAX_MINER_AGENT_NAME_LENGTH:
         agent_name = agent_name[:MAX_MINER_AGENT_NAME_LENGTH]
@@ -1007,17 +1002,17 @@ def _sanitize_json(obj: Any, *, _key: str | None = None) -> Any:
     from base64 import b64encode
 
     if _key in _REDACT_KEYS:
-        if isinstance(obj, (str, bytes, bytearray)):
+        if isinstance(obj, str | bytes | bytearray):
             return f"<redacted:{_key} size={len(obj)}>"
         return f"<redacted:{_key}>"
 
-    if obj is None or isinstance(obj, (str, int, float, bool)):
+    if obj is None or isinstance(obj, str | int | float | bool):
         # Do not truncate "content" (e.g. round log) so full log is uploaded to S3
         if isinstance(obj, str) and len(obj) > 1000 and _key != "content":
             return obj[:1000] + f"... (truncated {len(obj)} chars)"
         return obj
 
-    if isinstance(obj, (datetime, date, dtime)):
+    if isinstance(obj, datetime | date | dtime):
         try:
             return obj.isoformat()
         except Exception:
@@ -1029,13 +1024,13 @@ def _sanitize_json(obj: Any, *, _key: str | None = None) -> Any:
         except Exception:
             return obj.name
 
-    if isinstance(obj, (bytes, bytearray)):
+    if isinstance(obj, bytes | bytearray):
         try:
             return b64encode(obj).decode("ascii")
         except Exception:
             return str(obj)
 
-    if isinstance(obj, (list, tuple, set)):
+    if isinstance(obj, list | tuple | set):
         return [_sanitize_json(item) for item in obj]
 
     if isinstance(obj, dict):

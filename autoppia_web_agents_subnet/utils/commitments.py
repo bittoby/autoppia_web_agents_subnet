@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 from bittensor import AsyncSubtensor  # type: ignore
-
 
 # Limit plain-commit payloads to a small size (we aim to store only CID objects)
 MAX_COMMIT_BYTES = 16 * 1024  # 16 KiB
@@ -14,17 +13,14 @@ def _json_dump_compact(data: Any) -> str:
     s = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     b = s.encode("utf-8")
     if len(b) > MAX_COMMIT_BYTES:
-        raise ValueError(
-            f"JSON payload too large: {len(b)} bytes (limit {MAX_COMMIT_BYTES}). "
-            "Store less history or compress further."
-        )
+        raise ValueError(f"JSON payload too large: {len(b)} bytes (limit {MAX_COMMIT_BYTES}). Store less history or compress further.")
     return s
 
 
-def _maybe_json_load(s: Optional[Any]) -> Any:
+def _maybe_json_load(s: Any | None) -> Any:
     if s is None:
         return None
-    if isinstance(s, (bytes, bytearray)):
+    if isinstance(s, bytes | bytearray):
         try:
             s = s.decode("utf-8")
         except Exception:
@@ -58,7 +54,7 @@ async def write_plain_commitment_json(
     wallet,
     data: Any,
     netuid: int,
-    period: Optional[int] = None,
+    period: int | None = None,
 ) -> bool:
     payload = _json_dump_compact(data)
     return await st.commit(wallet=wallet, netuid=netuid, data=payload, period=period)
@@ -68,9 +64,9 @@ async def read_plain_commitment(
     st: AsyncSubtensor,
     *,
     netuid: int,
-    uid: Optional[int] = None,
-    hotkey_ss58: Optional[str] = None,
-    block: Optional[int] = None,
+    uid: int | None = None,
+    hotkey_ss58: str | None = None,
+    block: int | None = None,
 ) -> Any:
     if uid is None and not hotkey_ss58:
         raise ValueError("Provide either `uid` or `hotkey_ss58`")
@@ -88,8 +84,8 @@ async def read_all_plain_commitments(
     st: AsyncSubtensor,
     *,
     netuid: int,
-    block: Optional[int] = None,
-) -> Dict[str, Any]:
+    block: int | None = None,
+) -> dict[str, Any]:
     commits = await st.get_all_commitments(netuid=netuid, block=block, reuse_block=False)
     return {hk: _maybe_json_load(v) for hk, v in commits.items()}
 
@@ -100,7 +96,7 @@ async def upsert_my_plain_json(
     wallet,
     netuid: int,
     payload: Any,
-    period: Optional[int] = None,
+    period: int | None = None,
 ) -> bool:
     return await write_plain_commitment_json(st, wallet=wallet, data=payload, netuid=netuid, period=period)
 
@@ -110,10 +106,9 @@ async def read_my_plain_json(
     *,
     wallet,
     netuid: int,
-    block: Optional[int] = None,
+    block: int | None = None,
 ) -> Any:
     uid = await st.get_uid_for_hotkey_on_subnet(wallet.hotkey.ss58_address, netuid)
     if uid is None:
         return None
     return await read_plain_commitment(st, netuid=netuid, uid=uid, block=block)
-

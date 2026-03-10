@@ -5,12 +5,12 @@ Each module has a distinct color for easy visual identification in logs.
 """
 
 # ANSI color codes
-CYAN = "\033[36m"           # IPFS operations
-BRIGHT_CYAN = "\033[96m"    # CONSENSUS operations
-MAGENTA = "\033[35m"        # IWAP/API calls
-YELLOW = "\033[33m"         # CHECKPOINT/state
-GREEN = "\033[32m"          # EVALUATION/testing
-BLUE = "\033[34m"           # General info
+CYAN = "\033[36m"  # IPFS operations
+BRIGHT_CYAN = "\033[96m"  # CONSENSUS operations
+MAGENTA = "\033[35m"  # IWAP/API calls
+YELLOW = "\033[33m"  # CHECKPOINT/state
+GREEN = "\033[32m"  # EVALUATION/testing
+BLUE = "\033[34m"  # General info
 RESET = "\033[0m"
 
 

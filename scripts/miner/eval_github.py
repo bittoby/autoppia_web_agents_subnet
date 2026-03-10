@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import time
@@ -89,15 +90,13 @@ def _load_env_file(path: str) -> None:
 def _load_tasks_from_json(path: Path, limit: int) -> list[Any]:
     from autoppia_iwa.src.data_generation.tasks.classes import Task
     from autoppia_iwa.src.demo_webs.config import demo_web_projects
+
     from autoppia_web_agents_subnet.validator.models import TaskWithProject
 
     with path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
 
-    if isinstance(payload, dict):
-        rows = payload.get("tasks")
-    else:
-        rows = payload
+    rows = payload.get("tasks") if isinstance(payload, dict) else payload
     if not isinstance(rows, list):
         raise RuntimeError(f"Invalid tasks file format (expected list in 'tasks'): {path}")
 
@@ -178,8 +177,7 @@ async def _run() -> int:
         agent = manager.deploy_agent(int(args.uid), args.github)
         if agent is None:
             raise RuntimeError(
-                "Sandbox agent deployment failed. Ensure repo starts an API with /health and /act, "
-                "and includes required runtime deps. Re-run with --keep-containers to inspect docker logs."
+                "Sandbox agent deployment failed. Ensure repo starts an API with /health and /act, and includes required runtime deps. Re-run with --keep-containers to inspect docker logs."
             )
         bt.logging.info(f"Agent deployed at {agent.base_url}")
 
@@ -250,16 +248,10 @@ async def _run() -> int:
                 f"tokens={row['tokens']} reward={row['reward']:.3f}"
             )
             if cost_limit_exceed_count > 0 and max_cost_per_task > 0.0 and row["over_cost_limit"]:
-                bt.logging.warning(
-                    f"Cost limit hit {cost_limit_hits}/{cost_limit_exceed_count} on task {idx}: "
-                    f"${cost:.4f} >= ${max_cost_per_task:.4f}"
-                )
+                bt.logging.warning(f"Cost limit hit {cost_limit_hits}/{cost_limit_exceed_count} on task {idx}: ${cost:.4f} >= ${max_cost_per_task:.4f}")
                 if cost_limit_hits >= cost_limit_exceed_count:
                     stop_for_cost_limit_streak = True
-                    bt.logging.warning(
-                        "Reached MAX_OVER_COST_TASKS_BEFORE_FORCED_ZERO_SCORE; "
-                        "stopping remaining tasks and forcing validator score to 0."
-                    )
+                    bt.logging.warning("Reached MAX_OVER_COST_TASKS_BEFORE_FORCED_ZERO_SCORE; stopping remaining tasks and forcing validator score to 0.")
                     break
 
         n_requested = max(total_tasks, 1)
@@ -309,15 +301,11 @@ async def _run() -> int:
                 manager.cleanup_agent(int(args.uid))
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             manager.cleanup_all_agents()
-        except Exception:
-            pass
         if not args.keep_gateway and gateway_container is not None:
-            try:
+            with contextlib.suppress(Exception):
                 stop_and_remove(gateway_container)
-            except Exception:
-                pass
 
 
 def main() -> int:

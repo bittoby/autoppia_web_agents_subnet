@@ -4,8 +4,9 @@ Edge case tests for validator workflow.
 Tests handling of unusual but valid scenarios.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 
 @pytest.mark.unit
@@ -341,8 +342,8 @@ class TestConcurrencyEdgeCases:
     @pytest.mark.asyncio
     async def test_evaluation_with_queue_modifications(self, validator_with_agents, season_tasks):
         """Test evaluation when queue is modified during processing."""
-        from tests.conftest import _bind_evaluation_mixin
         from autoppia_web_agents_subnet.validator.models import AgentInfo
+        from tests.conftest import _bind_evaluation_mixin
 
         validator_with_agents = _bind_evaluation_mixin(validator_with_agents)
 
@@ -372,8 +373,7 @@ class TestConcurrencyEdgeCases:
         async def mock_evaluate(*args, **kwargs):
             return (1.0, None, None)  # Return tuple as expected
 
-        with patch("autoppia_web_agents_subnet.validator.evaluation.mixin.normalize_and_validate_github_url",
-                   return_value=("https://github.com/test/agent", "main")):
+        with patch("autoppia_web_agents_subnet.validator.evaluation.mixin.normalize_and_validate_github_url", return_value=("https://github.com/test/agent", "main")):
             with patch("autoppia_web_agents_subnet.validator.evaluation.mixin.evaluate_with_stateful_cua", new=mock_evaluate):
                 with patch(
                     "autoppia_web_agents_subnet.validator.evaluation.mixin.resolve_remote_ref_commit",

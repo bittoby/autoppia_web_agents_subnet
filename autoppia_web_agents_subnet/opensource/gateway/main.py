@@ -1,36 +1,35 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import random
+import secrets
 import time
-from typing import Optional
 from logging.handlers import RotatingFileHandler
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException, Response
-import secrets
-
-from models import LLMUsage, DEFAULT_PROVIDER_CONFIGS
 from config import (
-    COST_LIMIT_PER_TASK,
-    OPENAI_API_KEY,
-    CHUTES_API_KEY,
-    SANDBOX_GATEWAY_ADMIN_TOKEN,
-    GATEWAY_ALLOWED_PROVIDERS,
-    OPENAI_ALLOWED_MODELS,
     CHUTES_ALLOWED_MODELS,
-    OPENAI_ALLOWED_PATHS,
     CHUTES_ALLOWED_PATHS,
-    GATEWAY_STRICT_PRICING,
-    CHUTES_PRICING_TTL_SECONDS,
+    CHUTES_API_KEY,
     CHUTES_PRICING_TIMEOUT_SECONDS,
+    CHUTES_PRICING_TTL_SECONDS,
+    COST_LIMIT_PER_TASK,
+    GATEWAY_ALLOWED_PROVIDERS,
+    GATEWAY_CHUTES_MAX_CONCURRENCY,
     GATEWAY_FORCE_JSON_RESPONSE_FORMAT,
     GATEWAY_OPENAI_MAX_CONCURRENCY,
-    GATEWAY_CHUTES_MAX_CONCURRENCY,
+    GATEWAY_STRICT_PRICING,
     GATEWAY_UPSTREAM_MAX_RETRIES,
     GATEWAY_UPSTREAM_RETRY_BASE_DELAY_S,
+    OPENAI_ALLOWED_MODELS,
+    OPENAI_ALLOWED_PATHS,
+    OPENAI_API_KEY,
+    SANDBOX_GATEWAY_ADMIN_TOKEN,
 )
+from fastapi import FastAPI, HTTPException, Request, Response
+from models import DEFAULT_PROVIDER_CONFIGS, LLMUsage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -91,9 +90,9 @@ class LLMGateway:
         b2["response_format"] = {"type": "json_object"}
         return b2, True
 
-    def detect_provider(self, path: str) -> Optional[str]:
+    def detect_provider(self, path: str) -> str | None:
         """Detect LLM provider from request."""
-        for provider in self.providers.keys():
+        for provider in self.providers:
             # Require an exact provider match or a slash-delimited prefix.
             # This prevents SSRF-style host override via paths like "openai@evil.com/...".
             if path == provider or path.startswith(f"{provider}/"):
@@ -102,7 +101,7 @@ class LLMGateway:
         logger.error("Unsupported provider.")
         return None
 
-    def detect_task_id(self, request: Request) -> Optional[str]:
+    def detect_task_id(self, request: Request) -> str | None:
         """Detect task ID from request for usage tracking."""
         task_id = request.headers.get("iwa-task-id", "")
         if task_id in self.allowed_task_ids:
@@ -119,10 +118,7 @@ class LLMGateway:
         allowed = OPENAI_ALLOWED_PATHS if provider == "openai" else CHUTES_ALLOWED_PATHS if provider == "chutes" else set()
         if not allowed:
             return True
-        for p in allowed:
-            if suffix == p or suffix.startswith(p + "/"):
-                return True
-        return False
+        return any(suffix == p or suffix.startswith(p + "/") for p in allowed)
 
     def _is_allowed_model(self, provider: str, model: str) -> bool:
         allowed = OPENAI_ALLOWED_MODELS if provider == "openai" else CHUTES_ALLOWED_MODELS if provider == "chutes" else set()
@@ -144,7 +140,7 @@ class LLMGateway:
         if model in provider_config.pricing:
             return model
         best_key = ""
-        for key in provider_config.pricing.keys():
+        for key in provider_config.pricing:
             if model.startswith(key) and len(key) > len(best_key):
                 best_key = key
         return best_key or model
@@ -309,7 +305,7 @@ class LLMGateway:
             logger.info(f"Provider: {provider} | Model: {model} | Tokens: {total_tokens} | Cost: {total_cost}")
         return total_tokens, total_cost, model
 
-    def set_allowed_task_ids(self, task_ids: Optional[list[str]] = None):
+    def set_allowed_task_ids(self, task_ids: list[str] | None = None):
         """Set allowed task IDs for limiting other requests and tracking usage."""
         if task_ids is None:
             task_ids = []
@@ -335,7 +331,7 @@ def _looks_like_unsupported_response_format(resp: httpx.Response) -> bool:
     return "response_format" in text and ("unsupported" in text or "invalid" in text or "unknown" in text or code == "unsupported_parameter")
 
 
-def _extract_llm_input(provider: str, suffix: str, body: dict) -> Optional[str]:
+def _extract_llm_input(provider: str, suffix: str, body: dict) -> str | None:
     try:
         if not isinstance(body, dict):
             return None
@@ -354,7 +350,7 @@ def _extract_llm_input(provider: str, suffix: str, body: dict) -> Optional[str]:
     return None
 
 
-def _extract_llm_output(provider: str, suffix: str, data: dict) -> Optional[str]:
+def _extract_llm_output(provider: str, suffix: str, data: dict) -> str | None:
     try:
         if not isinstance(data, dict):
             return None
@@ -386,10 +382,8 @@ app = FastAPI(title="Autoppia LLM Gateway", description="Simple gateway for LLM 
 @app.on_event("startup")
 async def _startup() -> None:
     # Best-effort: populate Chutes pricing so strict pricing works immediately.
-    try:
+    with contextlib.suppress(Exception):
         await gateway.refresh_chutes_pricing()
-    except Exception:
-        pass
 
 
 def _require_admin(request: Request) -> None:
@@ -431,7 +425,7 @@ async def set_allowed_task_ids(request: Request):
         gateway.set_allowed_task_ids(task_ids=task_ids)
     except Exception as e:
         logger.error(f"Error setting allowed task IDs: {e}")
-        raise HTTPException(status_code=400, detail=f"Error setting allowed task IDs: {e}")
+        raise HTTPException(status_code=400, detail=f"Error setting allowed task IDs: {e}") from e
     return {"status": "allowed task IDs set"}
 
 
@@ -552,37 +546,34 @@ async def proxy_request(request: Request, path: str):
                 response = None
             else:
                 # If we forced response_format and upstream rejects it, retry once without it.
-                if forced_response_format and not attempted_without_response_format and response.status_code in (400, 422):
-                    if _looks_like_unsupported_response_format(response):
-                        attempted_without_response_format = True
-                        forced_response_format = False
-                        upstream_body = body  # original bytes
-                        # Do not count this as a retry; it's a compatibility fallback.
-                        continue
+                if forced_response_format and not attempted_without_response_format and response.status_code in (400, 422) and _looks_like_unsupported_response_format(response):
+                    attempted_without_response_format = True
+                    forced_response_format = False
+                    upstream_body = body  # original bytes
+                    # Do not count this as a retry; it's a compatibility fallback.
+                    continue
 
                 # Retry transient upstream errors.
-                if response.status_code == 429 or response.status_code >= 500:
-                    if attempt < max_retries:
-                        retry_after_s = 0.0
-                        ra = (response.headers.get("retry-after") or "").strip()
-                        if ra:
-                            try:
-                                retry_after_s = float(ra)
-                            except Exception:
-                                retry_after_s = 0.0
-                        delay = max(base_delay * (2**attempt), retry_after_s)
-                        delay += random.random() * 0.25
-                        attempt += 1
-                        await asyncio.sleep(delay)
-                        continue
-
-            if response is None:
-                if attempt < max_retries:
-                    delay = base_delay * (2**attempt)
+                if (response.status_code == 429 or response.status_code >= 500) and attempt < max_retries:
+                    retry_after_s = 0.0
+                    ra = (response.headers.get("retry-after") or "").strip()
+                    if ra:
+                        try:
+                            retry_after_s = float(ra)
+                        except Exception:
+                            retry_after_s = 0.0
+                    delay = max(base_delay * (2**attempt), retry_after_s)
                     delay += random.random() * 0.25
                     attempt += 1
                     await asyncio.sleep(delay)
                     continue
+
+            if response is None and attempt < max_retries:
+                delay = base_delay * (2**attempt)
+                delay += random.random() * 0.25
+                attempt += 1
+                await asyncio.sleep(delay)
+                continue
 
             break
 
@@ -647,4 +638,4 @@ async def proxy_request(request: Request, path: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gateway error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Gateway error: {e!s}") from e

@@ -1,13 +1,13 @@
-import re
 import random
+import re
 
 
 def version_to_tuple(version):
-    return tuple(map(int, version.split('.')))
+    return tuple(map(int, version.split(".")))
 
 
 def is_valid_version_format(version):
-    return bool(re.match(r'^\d+\.\d+\.\d+$', version))
+    return bool(re.match(r"^\d+\.\d+\.\d+$", version))
 
 
 def is_version_in_range(version, version1, version2):
@@ -25,7 +25,7 @@ def is_version_in_range(version, version1, version2):
 
 
 def tuple_to_version(version_tuple):
-    return '.'.join(map(str, version_tuple))
+    return ".".join(map(str, version_tuple))
 
 
 def generate_random_version(version1, version2):
@@ -36,11 +36,7 @@ def generate_random_version(version1, version2):
         v1, v2 = v2, v1
 
     def random_version_near(v):
-        return tuple(
-            max(v[i] + random.choice([-1, 1]), 0)
-            if random.random() > 0.5 else v[i]
-            for i in range(len(v))
-        )
+        return tuple(max(v[i] + random.choice([-1, 1]), 0) if random.random() > 0.5 else v[i] for i in range(len(v)))
 
     def is_in_range(v):
         return v1 <= v <= v2

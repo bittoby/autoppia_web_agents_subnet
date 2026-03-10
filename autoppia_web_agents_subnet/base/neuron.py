@@ -16,18 +16,20 @@
 # DEALINGS IN THE SOFTWARE.
 
 import copy
-import bittensor as bt
+import re
 import threading
-from abc import ABC, abstractmethod
-
-# Sync calls set weights and also resyncs the metagraph.
-from autoppia_web_agents_subnet.base.utils.config import check_config, add_args, config
-from autoppia_web_agents_subnet.base.utils.misc import _get_current_block_serialized, ttl_get_block
-from autoppia_web_agents_subnet.utils.logging_filter import apply_subnet_module_logging_filters
 import time
 import traceback
-import re
+from abc import ABC, abstractmethod
+
+import bittensor as bt
+
 from autoppia_web_agents_subnet import SUBNET_IWA_VERSION, __least_acceptable_version__, __spec_version__
+
+# Sync calls set weights and also resyncs the metagraph.
+from autoppia_web_agents_subnet.base.utils.config import add_args, check_config, config
+from autoppia_web_agents_subnet.base.utils.misc import _get_current_block_serialized, ttl_get_block
+from autoppia_web_agents_subnet.utils.logging_filter import apply_subnet_module_logging_filters
 
 
 class BaseNeuron(ABC):
@@ -88,21 +90,18 @@ class BaseNeuron(ABC):
         class DendriteNoiseFilter(logging.Filter):
             """Filter to block noisy dendrite connection errors (stdlib logging)."""
 
-            NOISE_PATTERNS = [
+            NOISE_PATTERNS = (
                 r"ClientConnectorError.*Cannot connect to host",
                 r"TimeoutError#[a-f0-9-]+:",
                 r"Cannot connect to host 0\.0\.0\.0:(?:0|8091)",
-            ]
+            )
 
             def filter(self, record):
                 try:
                     msg = record.getMessage()
                 except Exception:
                     return True
-                for pattern in self.NOISE_PATTERNS:
-                    if re.search(pattern, msg):
-                        return False
-                return True
+                return all(not re.search(pattern, msg) for pattern in self.NOISE_PATTERNS)
 
         # Attach stdlib filter (harmless if unused)
         logging.getLogger("bittensor.dendrite").addFilter(DendriteNoiseFilter())
@@ -152,7 +151,7 @@ class BaseNeuron(ABC):
                 self.metagraph = self.subtensor.metagraph(self.config.netuid)
                 break
             except Exception as e:
-                bt.logging.error("Couldn't init subtensor and metagraph with error: {}".format(e))
+                bt.logging.error(f"Couldn't init subtensor and metagraph with error: {e}")
                 bt.logging.error("If you use public RPC endpoint try to move to local node")
                 time.sleep(5)
 
@@ -208,7 +207,7 @@ class BaseNeuron(ABC):
                 # Always save state.
                 self.save_state()
             except Exception:
-                bt.logging.error("Coundn't sync metagraph or set weights: {}".format(traceback.format_exc()))
+                bt.logging.error(f"Coundn't sync metagraph or set weights: {traceback.format_exc()}")
                 bt.logging.error("If you use public RPC endpoint try to move to local node")
                 time.sleep(5)
 
@@ -226,10 +225,7 @@ class BaseNeuron(ABC):
         Check if enough epoch blocks have elapsed since the last checkpoint to sync.
 
         """
-        if self.neuron_type != "MinerNeuron":
-            last_update = self.metagraph.last_update[self.uid]
-        else:
-            last_update = self.last_update
+        last_update = self.metagraph.last_update[self.uid] if self.neuron_type != "MinerNeuron" else self.last_update
 
         return (self.block - last_update) > self.config.neuron.epoch_length
 
