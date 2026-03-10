@@ -8,8 +8,6 @@ pytest-mock
 psutil
 hypothesis
 numpy
-setuptools>=78.1.1
 loguru
 xmldiff
 filelock
-starlette>=0.47.2

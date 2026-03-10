@@ -53,7 +53,7 @@ skip-string-normalization = true
 line-length = 200
 target-version = "py311"
 fix = true
-unsafe-fixes = true
+unsafe-fixes = false
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
@@ -120,15 +120,9 @@ omit = [
     "autoppia_web_agents_subnet/base/utils/config.py",
     "autoppia_web_agents_subnet/base/utils/logging.py",
     "autoppia_web_agents_subnet/platform/validator_mixin.py",
-    # Integration-heavy (async/IWA/network); unit-tested via mixins elsewhere
+    # Integration-heavy (async/IWA/network)
     "autoppia_web_agents_subnet/platform/mixin.py",
-    "autoppia_web_agents_subnet/platform/utils/round_flow.py",
-    "autoppia_web_agents_subnet/platform/utils/task_flow.py",
     "autoppia_web_agents_subnet/platform/utils/iwa_core.py",
-    "autoppia_web_agents_subnet/validator/evaluation/mixin.py",
-    "autoppia_web_agents_subnet/validator/round_start/mixin.py",
-    "autoppia_web_agents_subnet/validator/settlement/consensus.py",
-    "autoppia_web_agents_subnet/validator/settlement/mixin.py",
     "autoppia_web_agents_subnet/validator/season_manager.py",
     "autoppia_web_agents_subnet/validator/evaluation/tasks.py",
     "autoppia_web_agents_subnet/validator/evaluation/stateful_cua_eval.py",

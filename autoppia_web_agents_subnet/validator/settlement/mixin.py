@@ -142,13 +142,8 @@ class ValidatorSettlementMixin:
             )
         else:
             st = await self._get_async_subtensor()
-            local_scores_for_snapshot: dict[str, float] = {}
-            for uid, info in agents_dict.items():
-                try:
-                    local_scores_for_snapshot[str(int(uid))] = float(getattr(info, "score", 0.0) or 0.0)
-                except Exception:
-                    continue
-            await publish_round_snapshot(self, st=st, scores=local_scores_for_snapshot)
+            # Snapshot payloads are built from current/best run data inside publish_round_snapshot().
+            await publish_round_snapshot(self, st=st, scores={})
 
             fetch_fraction = float(
                 getattr(

@@ -15,8 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
 
     steps:
       - name: Checkout code
@@ -40,11 +38,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "setuptools==80.9.0"
-          pip install -r requirements.txt
-          pip install "bittensor==9.9.0"
-          pip install -e .
-          pip install pytest-cov
+          pip install -r requirements.txt "bittensor==9.9.0" pytest-cov
+          pip install -e . --no-deps
 
       - name: Audit (pip-audit)
         run: |
@@ -69,11 +64,6 @@ jobs:
           echo "::error::Dependency vulnerabilities found (pip-audit: ${{ steps.pip_audit.outputs.pip_audit_vuln_count }}). Fix them before merging."
           exit 1
 
-      - name: Ensure setuptools (pkg_resources) for bittensor/munch
-        run: |
-          pip install --force-reinstall "setuptools==80.9.0"
-          python -c "import pkg_resources; print('pkg_resources ok')"
-
       - name: Run tests with coverage
         env:
           VALIDATOR_NAME: sonar-ci
@@ -89,7 +79,7 @@ jobs:
           fi
 
       - name: OWASP Dependency-Check (SARIF for SonarCloud)
-        uses: dependency-check/Dependency-Check_Action@main
+        uses: dependency-check/Dependency-Check_Action@75ba02d6183445fe0761d26e836bde58b1560600
         with:
           project: "autoppia_web_agents_subnet"
           path: "."

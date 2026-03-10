@@ -223,7 +223,7 @@ class TestHandshake:
             assert dummy_validator.eligibility_status_by_uid[1] == "invalid_github_url"
             assert dummy_validator.active_miner_uids == []
 
-    async def test_handshake_does_not_reenqueue_when_submission_unchanged(self, dummy_validator):
+    async def test_handshake_reuses_same_commit_only_when_reusable_stats_match_context(self, dummy_validator):
         from tests.conftest import _bind_round_start_mixin
 
         dummy_validator = _bind_round_start_mixin(dummy_validator)
@@ -248,6 +248,13 @@ class TestHandshake:
             git_commit="deadbeef",
         )
         dummy_validator.agents_dict = {1: existing}
+        dummy_validator._find_reusable_commit_stats = Mock(
+            return_value={
+                "agent_run_id": "run-1",
+                "total_tasks": 3,
+                "evaluation_context": {"evaluation_context_hash": "sha256:test"},
+            }
+        )
 
         with (
             patch("autoppia_web_agents_subnet.validator.round_start.mixin.send_start_round_synapse_to_miners") as mock_send,
@@ -265,6 +272,49 @@ class TestHandshake:
             dummy_validator.agents_queue.put.assert_not_called()
             assert dummy_validator.agents_dict[1].score == 0.42
             assert dummy_validator.agents_dict[1].evaluated is True
+            assert dummy_validator.eligibility_status_by_uid[1] == "reused"
+
+    async def test_handshake_reenqueues_same_commit_without_reusable_stats(self, dummy_validator):
+        from tests.conftest import _bind_round_start_mixin
+
+        dummy_validator = _bind_round_start_mixin(dummy_validator)
+
+        dummy_validator.uid = 0
+        dummy_validator.metagraph.n = 2
+        dummy_validator.metagraph.stake = [15000.0, 15000.0]
+        dummy_validator.metagraph.axons = [Mock(ip="127.0.0.1", port=8000), Mock(ip="127.0.0.1", port=8001)]
+
+        from autoppia_web_agents_subnet.validator.models import AgentInfo
+
+        existing = AgentInfo(
+            uid=1,
+            agent_name="agent1",
+            github_url="https://github.com/test/agent1/tree/main",
+            agent_image=None,
+            score=0.42,
+            evaluated=True,
+            normalized_repo="https://github.com/test/agent1",
+            git_commit="deadbeef",
+        )
+        dummy_validator.agents_dict = {1: existing}
+        dummy_validator._find_reusable_commit_stats = Mock(return_value=None)
+
+        with (
+            patch("autoppia_web_agents_subnet.validator.round_start.mixin.send_start_round_synapse_to_miners") as mock_send,
+            patch("autoppia_web_agents_subnet.validator.round_start.mixin.resolve_remote_ref_commit") as mock_resolve,
+        ):
+            mock_send.return_value = [
+                Mock(agent_name="agent1", github_url="https://github.com/test/agent1/tree/main", agent_image=None),
+            ]
+            mock_resolve.return_value = "deadbeef"
+
+            dummy_validator.agents_queue.put.reset_mock()
+            await dummy_validator._perform_handshake()
+
+            dummy_validator.agents_queue.put.assert_called_once()
+            assert dummy_validator.agents_dict[1].score == 0.42
+            assert dummy_validator.agents_dict[1].git_commit == "deadbeef"
+            assert dummy_validator.eligibility_status_by_uid[1] == "handshake_valid"
 
     async def test_handshake_reenqueues_when_submission_commit_changes(self, dummy_validator):
         from tests.conftest import _bind_round_start_mixin

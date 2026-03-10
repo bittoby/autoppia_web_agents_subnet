@@ -53,6 +53,8 @@ class MockContext:
         self.iwap_client = AsyncMock()
         self.round_manager = MagicMock()
         self.round_manager.ROUND_BLOCK_LENGTH = 360
+        self._best_run_payload_for_miner = lambda _uid: None
+        self._current_round_run_payload = lambda _uid: None
 
         # Add _reset_iwap_round_state method
         def _reset_iwap_round_state():
