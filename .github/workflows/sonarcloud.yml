@@ -134,9 +134,14 @@ jobs:
           echo "SONAR_ORGANIZATION=${SONAR_ORGANIZATION}" >> "$GITHUB_ENV"
           echo "run_sonar=true" >> "$GITHUB_OUTPUT"
 
+      - name: Inject SARIF path into sonar-project.properties
+        if: steps.sonar_cfg.outputs.run_sonar == 'true' && steps.sarif.outputs.has_sarif == 'true'
+        run: |
+          echo "sonar.sarifReportPaths=reports/dependency-check-report.sarif" >> sonar-project.properties
+
       - name: SonarCloud Scan
         if: steps.sonar_cfg.outputs.run_sonar == 'true'
-        uses: SonarSource/sonarqube-scan-action@v5.0.0
+        uses: SonarSource/sonarqube-scan-action@v7.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -145,4 +150,3 @@ jobs:
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY || 'autoppia-web-agents-subnet' }}
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.branch.name=${{ github.ref_name }}
-            ${{ steps.sarif.outputs.has_sarif == 'true' && '-Dsonar.sarifReportPaths=reports/dependency-check-report.sarif' || '' }}
