@@ -792,10 +792,8 @@ async def aggregate_scores_from_commitments(
                         "avg_eval_time_den": 0.0,
                         "avg_cost_num": 0.0,
                         "avg_cost_den": 0.0,
-                        "tasks_sent_num": 0.0,
-                        "tasks_sent_den": 0.0,
-                        "tasks_success_num": 0.0,
-                        "tasks_success_den": 0.0,
+                        "tasks_sent_sum": 0,
+                        "tasks_success_sum": 0,
                         "handshake_ok_num": 0.0,
                         "handshake_ok_den": 0.0,
                     },
@@ -829,13 +827,11 @@ async def aggregate_scores_from_commitments(
 
                 tasks_sent = _extract_int_metric_value(entry_raw, "tasks_sent", "tasks_attempted")
                 if tasks_sent is not None:
-                    acc["tasks_sent_num"] += effective_weight * float(tasks_sent)
-                    acc["tasks_sent_den"] += effective_weight
+                    acc["tasks_sent_sum"] += int(tasks_sent)
 
                 tasks_success = _extract_int_metric_value(entry_raw, "tasks_success", "tasks_completed")
                 if tasks_success is not None:
-                    acc["tasks_success_num"] += effective_weight * float(tasks_success)
-                    acc["tasks_success_den"] += effective_weight
+                    acc["tasks_success_sum"] += int(tasks_success)
 
                 handshake_ok = entry_raw.get("handshake_ok")
                 if isinstance(handshake_ok, bool):
@@ -858,10 +854,8 @@ async def aggregate_scores_from_commitments(
                         "avg_eval_time_den": 0.0,
                         "avg_cost_num": 0.0,
                         "avg_cost_den": 0.0,
-                        "tasks_sent_num": 0.0,
-                        "tasks_sent_den": 0.0,
-                        "tasks_success_num": 0.0,
-                        "tasks_success_den": 0.0,
+                        "tasks_sent_sum": 0,
+                        "tasks_success_sum": 0,
                     },
                 )
                 avg_reward = _extract_metric_value(entry_raw, "avg_reward", "reward")
@@ -882,12 +876,10 @@ async def aggregate_scores_from_commitments(
                     acc["avg_cost_den"] += effective_weight
                 tasks_sent = _extract_int_metric_value(entry_raw, "tasks_sent")
                 if tasks_sent is not None:
-                    acc["tasks_sent_num"] += effective_weight * float(tasks_sent)
-                    acc["tasks_sent_den"] += effective_weight
+                    acc["tasks_sent_sum"] += int(tasks_sent)
                 tasks_success = _extract_int_metric_value(entry_raw, "tasks_success")
                 if tasks_success is not None:
-                    acc["tasks_success_num"] += effective_weight * float(tasks_success)
-                    acc["tasks_success_den"] += effective_weight
+                    acc["tasks_success_sum"] += int(tasks_success)
 
         included += 1
         fetched.append((hk, cid, st_val))
@@ -921,10 +913,10 @@ async def aggregate_scores_from_commitments(
             stats_entry["avg_eval_time"] = float(acc["avg_eval_time_num"] / acc["avg_eval_time_den"])
         if acc.get("avg_cost_den", 0.0) > 0.0:
             stats_entry["avg_cost"] = float(acc["avg_cost_num"] / acc["avg_cost_den"])
-        if acc.get("tasks_sent_den", 0.0) > 0.0:
-            stats_entry["tasks_sent"] = round(acc["tasks_sent_num"] / acc["tasks_sent_den"])
-        if acc.get("tasks_success_den", 0.0) > 0.0:
-            stats_entry["tasks_success"] = round(acc["tasks_success_num"] / acc["tasks_success_den"])
+        if acc.get("tasks_sent_sum", 0) > 0:
+            stats_entry["tasks_sent"] = int(acc["tasks_sent_sum"])
+        if acc.get("tasks_success_sum", 0) > 0:
+            stats_entry["tasks_success"] = int(acc["tasks_success_sum"])
         if acc.get("handshake_ok_den", 0.0) > 0.0:
             ratio = float(acc["handshake_ok_num"] / acc["handshake_ok_den"])
             stats_entry["handshake_ok_ratio"] = ratio
@@ -943,10 +935,10 @@ async def aggregate_scores_from_commitments(
             stats_entry["avg_eval_time"] = float(acc["avg_eval_time_num"] / acc["avg_eval_time_den"])
         if acc.get("avg_cost_den", 0.0) > 0.0:
             stats_entry["avg_cost"] = float(acc["avg_cost_num"] / acc["avg_cost_den"])
-        if acc.get("tasks_sent_den", 0.0) > 0.0:
-            stats_entry["tasks_sent"] = round(acc["tasks_sent_num"] / acc["tasks_sent_den"])
-        if acc.get("tasks_success_den", 0.0) > 0.0:
-            stats_entry["tasks_success"] = round(acc["tasks_success_num"] / acc["tasks_success_den"])
+        if acc.get("tasks_sent_sum", 0) > 0:
+            stats_entry["tasks_sent"] = int(acc["tasks_sent_sum"])
+        if acc.get("tasks_success_sum", 0) > 0:
+            stats_entry["tasks_success"] = int(acc["tasks_success_sum"])
         if stats_entry:
             current_stats_by_miner[int(uid)] = stats_entry
 

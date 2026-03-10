@@ -35,7 +35,13 @@ class TestConsensusScaling:
             # Each validator scores all miners
             scores = {miner_uid: 0.5 + (miner_uid % 10) * 0.05 for miner_uid in range(num_miners)}
 
-            payload = {"round_number": round_number, "r": round_number, "scores": scores, "timestamp": time.time()}
+            payload = {
+                "round_number": round_number,
+                "r": round_number,
+                "scores": scores,
+                "timestamp": time.time(),
+                "validator_version": "1.0.0",
+            }
 
             # Upload to IPFS
             cid = await mock_ipfs_client.add_json_async(payload)
@@ -49,6 +55,7 @@ class TestConsensusScaling:
                 # Setup dummy validator
                 dummy_validator.block = 1000
                 dummy_validator.config.netuid = 99
+                dummy_validator._current_round_number = round_number
                 dummy_validator.round_manager.calculate_round = Mock(return_value=round_number)
                 dummy_validator.metagraph.stake = [15000.0] * num_validators
                 dummy_validator.metagraph.hotkeys = [f"hotkey{i}" for i in range(num_validators)]
@@ -94,6 +101,7 @@ class TestConsensusScaling:
                 "scores": scores,
                 "timestamp": time.time(),
                 "metadata": {"validator": validator_uid},  # Extra data
+                "validator_version": "1.0.0",
             }
 
             cid = await mock_ipfs_client.add_json_async(payload)
@@ -105,6 +113,7 @@ class TestConsensusScaling:
             # Setup dummy validator
             dummy_validator.block = 1000
             dummy_validator.config.netuid = 99
+            dummy_validator._current_round_number = round_number
             dummy_validator.round_manager.calculate_round = Mock(return_value=round_number)
             dummy_validator.metagraph.stake = [15000.0] * num_validators
             dummy_validator.metagraph.hotkeys = [f"hotkey{i}" for i in range(num_validators)]
@@ -135,7 +144,13 @@ class TestConsensusScaling:
             for validator_uid in range(num_validators):
                 scores = {miner_uid: 0.5 + (miner_uid % 10) * 0.05 for miner_uid in range(num_miners)}
 
-                payload = {"round_number": round_number, "r": round_number, "scores": scores, "timestamp": time.time()}
+                payload = {
+                    "round_number": round_number,
+                    "r": round_number,
+                    "scores": scores,
+                    "timestamp": time.time(),
+                    "validator_version": "1.0.0",
+                }
 
                 cid = await mock_ipfs_client.add_json_async(payload)
 
@@ -147,6 +162,7 @@ class TestConsensusScaling:
                     # Setup dummy validator
                     dummy_validator.block = 1000
                     dummy_validator.config.netuid = 99
+                    dummy_validator._current_round_number = round_number
                     dummy_validator.round_manager.calculate_round = Mock(return_value=round_number)
                     dummy_validator.metagraph.stake = [15000.0] * num_validators
                     dummy_validator.metagraph.hotkeys = [f"hotkey{i}" for i in range(num_validators)]
@@ -353,21 +369,20 @@ class TestStressTests:
         validator_with_agents.sandbox_manager.deploy_agent = Mock(return_value=mock_instance)
         validator_with_agents.sandbox_manager.cleanup_agent = Mock()
 
-        # Mock evaluation
+        # Mock evaluation - use eval_score=1.0 for non-zero reward (binary reward function)
         async def mock_evaluate(*args, **kwargs):
             await asyncio.sleep(0.001)
-            return (0.8, None, None)
+            return (1.0, None, None)
 
-        with (
-            patch("autoppia_web_agents_subnet.validator.evaluation.mixin.evaluate_with_stateful_cua", new=mock_evaluate),
-            patch(
-                "autoppia_web_agents_subnet.validator.evaluation.mixin.resolve_remote_ref_commit",
-                return_value="deadbeef",
-            ),
-        ):
-            start_time = time.time()
-            await validator_with_agents._run_evaluation_phase()
-            elapsed = time.time() - start_time
+        with patch("autoppia_web_agents_subnet.validator.evaluation.mixin.normalize_and_validate_github_url", return_value=("https://github.com/test/agent", "main")):
+            with patch("autoppia_web_agents_subnet.validator.evaluation.mixin.evaluate_with_stateful_cua", new=mock_evaluate):
+                with patch(
+                    "autoppia_web_agents_subnet.validator.evaluation.mixin.resolve_remote_ref_commit",
+                    return_value="deadbeef",
+                ):
+                    start_time = time.time()
+                    await validator_with_agents._run_evaluation_phase()
+                    elapsed = time.time() - start_time
 
         # Should complete in reasonable time
         assert elapsed < 5.0, f"Evaluation took {elapsed:.2f}s, expected < 5s"

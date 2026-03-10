@@ -22,12 +22,14 @@ BURN_AMOUNT_PERCENTAGE = _env_float("BURN_AMOUNT_PERCENTAGE", 0.925)
 # SHARED CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-SEASON_SIZE_EPOCHS = _env_float("SEASON_SIZE_EPOCHS", 1.6666667, test_default=1.6666667)
+# Season/round scheduling must always come from this file for the validator.
+# Do not read these values from the process environment, otherwise PM2 can keep
+# stale overrides after resets/restarts.
+SEASON_SIZE_EPOCHS = 1.6666667
 # 30 minutes with 360 blocks/epoch and ~12s/block => 150 blocks => 0.4166667 epochs
-ROUND_SIZE_EPOCHS = _env_float("ROUND_SIZE_EPOCHS", 0.4166667, test_default=0.2778)
+ROUND_SIZE_EPOCHS = 0.4166667
 # IMPORTANT: season/round math uses MINIMUM_START_BLOCK always.
-# In TESTING mode, this still gets the hardcoded env value if present.
-MINIMUM_START_BLOCK = _env_int("MINIMUM_START_BLOCK", 7707750)
+MINIMUM_START_BLOCK = 7711230
 STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION = _env_float("STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION", 0.94, test_default=0.94)
 FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION = _env_float("FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION", 0.97, test_default=0.97)
 SKIP_ROUND_IF_STARTED_AFTER_FRACTION = _env_float("SKIP_ROUND_IF_STARTED_AFTER_FRACTION", 0.30, test_default=0.30)

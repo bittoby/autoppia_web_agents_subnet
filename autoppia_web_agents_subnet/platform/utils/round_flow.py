@@ -1231,6 +1231,8 @@ async def finish_round_flow(
             # Obtener stats: primero del consensus, luego locales como fallback
             consensus_stats = stats_by_miner.get(miner_uid) or {}
             local_stats = local_stats_by_miner.get(miner_uid) or {}
+            best_run_payload = ctx._best_run_payload_for_miner(miner_uid)
+            current_run_payload = ctx._current_round_run_payload(miner_uid)
 
             # Obtener miner_hotkey
             miner_hotkey = None
@@ -1254,28 +1256,37 @@ async def finish_round_flow(
             # These metrics are stake-weighted in consensus when available; otherwise local fallback.
             avg_eval_time = consensus_stats.get("avg_eval_time") or local_stats.get("avg_eval_time", 0.0)
             avg_cost = consensus_stats.get("avg_cost") or local_stats.get("avg_cost", 0.0)
-            tasks_sent = consensus_stats.get("tasks_sent") or local_stats.get("tasks_sent", 0)
-            tasks_success = consensus_stats.get("tasks_success") or local_stats.get("tasks_success", 0)
-            github_url = local_stats.get("github_url")
-            normalized_repo = local_stats.get("normalized_repo")
-            commit_sha = local_stats.get("commit_sha")
-            evaluation_context = local_stats.get("evaluation_context")
+            # IMPORTANT:
+            # reward/score/time/cost here are consensus-level metrics, but the
+            # task counters inside best/current runs should describe those runs
+            # themselves, not the round-level aggregate repeated per validator.
+            tasks_sent = int(best_run_payload.get("tasks_received", 0) or 0) if isinstance(best_run_payload, dict) else int(consensus_stats.get("tasks_sent") or local_stats.get("tasks_sent", 0) or 0)
+            tasks_success = (
+                int(best_run_payload.get("tasks_success", 0) or 0) if isinstance(best_run_payload, dict) else int(consensus_stats.get("tasks_success") or local_stats.get("tasks_success", 0) or 0)
+            )
+            github_url = best_run_payload.get("github_url") if isinstance(best_run_payload, dict) else local_stats.get("github_url")
+            normalized_repo = best_run_payload.get("normalized_repo") if isinstance(best_run_payload, dict) else local_stats.get("normalized_repo")
+            commit_sha = best_run_payload.get("commit_sha") if isinstance(best_run_payload, dict) else local_stats.get("commit_sha")
+            evaluation_context = best_run_payload.get("evaluation_context") if isinstance(best_run_payload, dict) else local_stats.get("evaluation_context")
 
             current_stats = current_stats_by_miner.get(miner_uid) or {}
             current_run_consensus = None
-            if isinstance(current_stats, dict) and current_stats:
+            if (isinstance(current_stats, dict) and current_stats) or isinstance(current_run_payload, dict):
                 current_run_consensus = {
-                    "reward": float(current_stats.get("avg_reward", 0.0) or 0.0),
-                    "score": float(current_stats.get("avg_eval_score", 0.0) or 0.0),
-                    "time": float(current_stats.get("avg_eval_time", 0.0) or 0.0),
-                    "cost": float(current_stats.get("avg_cost", 0.0) or 0.0),
-                    "tasks_received": int(current_stats.get("tasks_sent", 0) or 0),
-                    "tasks_success": int(current_stats.get("tasks_success", 0) or 0),
-                    "github_url": github_url,
-                    "normalized_repo": normalized_repo,
-                    "commit_sha": commit_sha,
+                    "reward": float(current_stats.get("avg_reward", 0.0) if isinstance(current_stats, dict) and current_stats else current_run_payload.get("reward", 0.0) or 0.0),
+                    "score": float(current_stats.get("avg_eval_score", 0.0) if isinstance(current_stats, dict) and current_stats else current_run_payload.get("score", 0.0) or 0.0),
+                    "time": float(current_stats.get("avg_eval_time", 0.0) if isinstance(current_stats, dict) and current_stats else current_run_payload.get("time", 0.0) or 0.0),
+                    "cost": float(current_stats.get("avg_cost", 0.0) if isinstance(current_stats, dict) and current_stats else current_run_payload.get("cost", 0.0) or 0.0),
+                    "tasks_received": int(current_run_payload.get("tasks_received", 0) or 0) if isinstance(current_run_payload, dict) else int(current_stats.get("tasks_sent", 0) or 0),
+                    "tasks_success": int(current_run_payload.get("tasks_success", 0) or 0) if isinstance(current_run_payload, dict) else int(current_stats.get("tasks_success", 0) or 0),
+                    "github_url": current_run_payload.get("github_url") if isinstance(current_run_payload, dict) else github_url,
+                    "normalized_repo": current_run_payload.get("normalized_repo") if isinstance(current_run_payload, dict) else normalized_repo,
+                    "commit_sha": current_run_payload.get("commit_sha") if isinstance(current_run_payload, dict) else commit_sha,
                 }
-                if isinstance(evaluation_context, dict):
+                current_context = current_run_payload.get("evaluation_context") if isinstance(current_run_payload, dict) else None
+                if isinstance(current_context, dict):
+                    current_run_consensus["evaluation_context"] = dict(current_context)
+                elif isinstance(evaluation_context, dict):
                     current_run_consensus["evaluation_context"] = dict(evaluation_context)
 
             post_consensus_miners.append(

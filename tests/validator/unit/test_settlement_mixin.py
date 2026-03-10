@@ -101,7 +101,7 @@ class TestSettlementPhase:
                 # Should have called _calculate_final_weights with scores
                 dummy_validator._calculate_final_weights.assert_called_once()
                 call_args = dummy_validator._calculate_final_weights.call_args
-                assert call_args[1]["scores"] == mock_scores
+                assert call_args[1]["consensus_rewards"] == mock_scores
 
     async def test_settlement_enters_complete_phase(self, dummy_validator):
         from tests.conftest import _bind_settlement_mixin
@@ -175,17 +175,18 @@ class TestWeightCalculation:
         """Test that _calculate_final_weights processes valid scores."""
         scores = {1: 0.8, 2: 0.6, 3: 0.9}
 
-        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.wta_rewards") as mock_wta, patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
-            # Mock WTA to return winner-takes-all rewards
-            mock_rewards = np.zeros(10, dtype=np.float32)
-            mock_rewards[3] = 1.0  # UID 3 wins
-            mock_wta.return_value = mock_rewards
+        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.wta_rewards") as mock_wta:
+            with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
+                # Mock WTA to return winner-takes-all rewards
+                mock_rewards = np.zeros(10, dtype=np.float32)
+                mock_rewards[3] = 1.0  # UID 3 wins
+                mock_wta.return_value = mock_rewards
 
-            await dummy_validator._calculate_final_weights(scores=scores)
+                await dummy_validator._calculate_final_weights(consensus_rewards=scores)
 
-            # Should have called update_scores and set_weights
-            dummy_validator.update_scores.assert_called_once()
-            dummy_validator.set_weights.assert_called_once()
+                # Should have called update_scores and set_weights
+                dummy_validator.update_scores.assert_called_once()
+                dummy_validator.set_weights.assert_called_once()
 
     async def test_weight_calculation_applies_wta_rewards(self, dummy_validator):
         from tests.conftest import _bind_settlement_mixin
@@ -195,15 +196,16 @@ class TestWeightCalculation:
         """Test that weight calculation applies winner-takes-all rewards."""
         scores = {1: 0.5, 2: 0.8, 3: 0.3}
 
-        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.wta_rewards") as mock_wta, patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
-            mock_rewards = np.zeros(10, dtype=np.float32)
-            mock_rewards[2] = 1.0  # UID 2 wins (highest score)
-            mock_wta.return_value = mock_rewards
+        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.wta_rewards") as mock_wta:
+            with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
+                mock_rewards = np.zeros(10, dtype=np.float32)
+                mock_rewards[2] = 1.0  # UID 2 wins (highest score)
+                mock_wta.return_value = mock_rewards
 
-            await dummy_validator._calculate_final_weights(scores=scores)
+                await dummy_validator._calculate_final_weights(consensus_rewards=scores)
 
-            # Should have called wta_rewards
-            mock_wta.assert_called_once()
+                # Should have called wta_rewards
+                mock_wta.assert_called_once()
 
     async def test_weight_calculation_keeps_reigning_winner_until_threshold_is_beaten(self, dummy_validator):
         from tests.conftest import _bind_settlement_mixin
@@ -214,19 +216,20 @@ class TestWeightCalculation:
         dummy_validator.season_manager.season_number = 7
         dummy_validator.round_manager.round_number = 1
 
-        with patch("autoppia_web_agents_subnet.validator.config.LAST_WINNER_BONUS_PCT", 0.05), patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
-            await dummy_validator._calculate_final_weights(scores={1: 0.9, 2: 0.8})
-            assert dummy_validator._last_round_winner_uid == 1
+        with patch("autoppia_web_agents_subnet.validator.config.LAST_WINNER_BONUS_PCT", 0.05):
+            with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
+                await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.9, 2: 0.8})
+                assert dummy_validator._last_round_winner_uid == 1
 
-            # Round 2: miner 2 improves, but not enough (> 0.9 * 1.05 = 0.945 required)
-            dummy_validator.round_manager.round_number = 2
-            await dummy_validator._calculate_final_weights(scores={1: 0.7, 2: 0.93})
-            assert dummy_validator._last_round_winner_uid == 1
+                # Round 2: miner 2 improves, but not enough (> 0.9 * 1.05 = 0.945 required)
+                dummy_validator.round_manager.round_number = 2
+                await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.7, 2: 0.93})
+                assert dummy_validator._last_round_winner_uid == 1
 
-            # Confirm rewards still point to UID 1 in last update
-            rewards = dummy_validator.update_scores.call_args[1]["rewards"]
-            assert float(rewards[1]) == pytest.approx(1.0)
-            assert float(rewards[2]) == pytest.approx(0.0)
+                # Confirm rewards still point to UID 1 in last update
+                rewards = dummy_validator.update_scores.call_args[1]["rewards"]
+                assert float(rewards[1]) == pytest.approx(1.0)
+                assert float(rewards[2]) == pytest.approx(0.0)
 
     async def test_weight_calculation_switches_winner_when_threshold_is_beaten(self, dummy_validator):
         from tests.conftest import _bind_settlement_mixin
@@ -237,18 +240,19 @@ class TestWeightCalculation:
         dummy_validator.season_manager.season_number = 8
         dummy_validator.round_manager.round_number = 1
 
-        with patch("autoppia_web_agents_subnet.validator.config.LAST_WINNER_BONUS_PCT", 0.05), patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
-            await dummy_validator._calculate_final_weights(scores={1: 0.9, 2: 0.8})
-            assert dummy_validator._last_round_winner_uid == 1
+        with patch("autoppia_web_agents_subnet.validator.config.LAST_WINNER_BONUS_PCT", 0.05):
+            with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
+                await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.9, 2: 0.8})
+                assert dummy_validator._last_round_winner_uid == 1
 
-            # Round 2: 0.96 > 0.945, so UID 2 dethrones UID 1
-            dummy_validator.round_manager.round_number = 2
-            await dummy_validator._calculate_final_weights(scores={1: 0.7, 2: 0.96})
-            assert dummy_validator._last_round_winner_uid == 2
+                # Round 2: 0.96 > 0.945, so UID 2 dethrones UID 1
+                dummy_validator.round_manager.round_number = 2
+                await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.7, 2: 0.96})
+                assert dummy_validator._last_round_winner_uid == 2
 
-            rewards = dummy_validator.update_scores.call_args[1]["rewards"]
-            assert float(rewards[2]) == pytest.approx(1.0)
-            assert float(rewards[1]) == pytest.approx(0.0)
+                rewards = dummy_validator.update_scores.call_args[1]["rewards"]
+                assert float(rewards[2]) == pytest.approx(1.0)
+                assert float(rewards[1]) == pytest.approx(0.0)
 
     async def test_weight_calculation_requires_eligibility_for_active_leader(self, dummy_validator):
         from tests.conftest import _bind_settlement_mixin
@@ -259,12 +263,12 @@ class TestWeightCalculation:
 
         with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
             dummy_validator.eligibility_status_by_uid = {1: "evaluated", 2: "evaluated"}
-            await dummy_validator._calculate_final_weights(scores={1: 0.9, 2: 0.8})
+            await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.9, 2: 0.8})
             assert dummy_validator._last_round_winner_uid == 1
 
             dummy_validator.round_manager.round_number = 2
             dummy_validator.eligibility_status_by_uid = {2: "evaluated"}
-            await dummy_validator._calculate_final_weights(scores={1: 0.0, 2: 0.7})
+            await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.0, 2: 0.7})
             assert dummy_validator._last_round_winner_uid == 2
 
             rewards = dummy_validator.update_scores.call_args[1]["rewards"]
@@ -280,17 +284,17 @@ class TestWeightCalculation:
 
         with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
             dummy_validator.eligibility_status_by_uid = {1: "evaluated", 2: "evaluated"}
-            await dummy_validator._calculate_final_weights(scores={1: 0.9, 2: 0.8})
+            await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.9, 2: 0.8})
             assert dummy_validator._last_round_winner_uid == 1
 
             dummy_validator.round_manager.round_number = 2
             dummy_validator.eligibility_status_by_uid = {2: "evaluated"}
-            await dummy_validator._calculate_final_weights(scores={1: 0.0, 2: 0.7})
+            await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.0, 2: 0.7})
             assert dummy_validator._last_round_winner_uid == 2
 
             dummy_validator.round_manager.round_number = 3
             dummy_validator.eligibility_status_by_uid = {1: "evaluated", 2: "evaluated"}
-            await dummy_validator._calculate_final_weights(scores={1: 0.6, 2: 0.5})
+            await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.6, 2: 0.5})
             assert dummy_validator._last_round_winner_uid == 1
 
     async def test_weight_calculation_records_season_history_and_round_winners(self, dummy_validator):
@@ -302,10 +306,11 @@ class TestWeightCalculation:
         dummy_validator.season_manager.season_number = 9
         dummy_validator.round_manager.round_number = 1
 
-        with patch("autoppia_web_agents_subnet.validator.config.LAST_WINNER_BONUS_PCT", 0.05), patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
-            await dummy_validator._calculate_final_weights(scores={1: 0.91, 2: 0.82})
-            dummy_validator.round_manager.round_number = 2
-            await dummy_validator._calculate_final_weights(scores={1: 0.55, 2: 0.86})
+        with patch("autoppia_web_agents_subnet.validator.config.LAST_WINNER_BONUS_PCT", 0.05):
+            with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
+                await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.91, 2: 0.82})
+                dummy_validator.round_manager.round_number = 2
+                await dummy_validator._calculate_final_weights(consensus_rewards={1: 0.55, 2: 0.86})
 
         season_state = dummy_validator._season_competition_history[9]
         assert season_state["summary"]["best_by_miner"][1] == pytest.approx(0.91)
@@ -322,14 +327,15 @@ class TestWeightCalculation:
         """Test that weight calculation calls update_scores and set_weights."""
         scores = {1: 0.8}
 
-        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.wta_rewards") as mock_wta, patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
-            mock_wta.return_value = np.zeros(10, dtype=np.float32)
+        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.wta_rewards") as mock_wta:
+            with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
+                mock_wta.return_value = np.zeros(10, dtype=np.float32)
 
-            await dummy_validator._calculate_final_weights(scores=scores)
+                await dummy_validator._calculate_final_weights(consensus_rewards=scores)
 
-            # Should have called both methods
-            dummy_validator.update_scores.assert_called_once()
-            dummy_validator.set_weights.assert_called_once()
+                # Should have called both methods
+                dummy_validator.update_scores.assert_called_once()
+                dummy_validator.set_weights.assert_called_once()
 
 
 @pytest.mark.unit
@@ -346,7 +352,7 @@ class TestBurnLogic:
         scores = {}  # No scores
         dummy_validator._burn_all = AsyncMock()
 
-        await dummy_validator._calculate_final_weights(scores=scores)
+        await dummy_validator._calculate_final_weights(consensus_rewards=scores)
 
         # Should have called _burn_all
         dummy_validator._burn_all.assert_called_once()
@@ -360,7 +366,7 @@ class TestBurnLogic:
         scores = {1: 0.8}
 
         with patch("autoppia_web_agents_subnet.validator.config.BURN_AMOUNT_PERCENTAGE", 1.0):
-            await dummy_validator._calculate_final_weights(scores=scores)
+            await dummy_validator._calculate_final_weights(consensus_rewards=scores)
 
             # Should have called update_scores (which happens in _burn_all)
             dummy_validator.update_scores.assert_called_once()
@@ -447,11 +453,12 @@ class TestWaitLogic:
         dummy_validator.block = 1000
         dummy_validator.subtensor.get_current_block = Mock(side_effect=[1000, 1010, 1020])
 
-        with patch("asyncio.sleep", new_callable=AsyncMock), patch("time.time", side_effect=[0, 13, 26, 39]):  # Simulate time passing
-            await dummy_validator._wait_until_specific_block(target_block=1020, target_description="test block")
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with patch("time.time", side_effect=[0, 13, 26, 39]):  # Simulate time passing
+                await dummy_validator._wait_until_specific_block(target_block=1020, target_description="test block")
 
-            # Should have entered WAITING phase
-            assert RoundPhase.WAITING in [t.phase for t in dummy_validator.round_manager.phase_history]
+                # Should have entered WAITING phase
+                assert RoundPhase.WAITING in [t.phase for t in dummy_validator.round_manager.phase_history]
 
 
 @pytest.mark.unit
@@ -486,7 +493,7 @@ class TestSettlementEdgeCases:
         scores = {1: 0.0, 2: 0.0, 3: 0.0}
         dummy_validator._burn_all = AsyncMock()
 
-        await dummy_validator._calculate_final_weights(scores=scores)
+        await dummy_validator._calculate_final_weights(consensus_rewards=scores)
 
         # Should burn when all scores are zero
         dummy_validator._burn_all.assert_called_once()
@@ -499,11 +506,12 @@ class TestSettlementEdgeCases:
         """Test weight calculation filters out negative scores."""
         scores = {1: 0.8, 2: -0.5, 3: 0.6}  # UID 2 has negative score
 
-        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.wta_rewards") as mock_wta, patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
-            mock_wta.return_value = np.zeros(10, dtype=np.float32)
+        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.wta_rewards") as mock_wta:
+            with patch("autoppia_web_agents_subnet.validator.settlement.mixin.render_round_summary_table"):
+                mock_wta.return_value = np.zeros(10, dtype=np.float32)
 
-            await dummy_validator._calculate_final_weights(scores=scores)
+                await dummy_validator._calculate_final_weights(consensus_rewards=scores)
 
-            # Should have filtered out negative score
-            call_args = mock_wta.call_args[0][0]
-            assert call_args[2] == 0.0  # Negative score should be filtered
+                # Should have filtered out negative score
+                call_args = mock_wta.call_args[0][0]
+                assert call_args[2] == 0.0  # Negative score should be filtered
