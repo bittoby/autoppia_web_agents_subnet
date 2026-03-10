@@ -328,18 +328,20 @@ def _build_local_round_summary(
         summary_state = {}
 
     leader_before = None
-    reigning_uid_raw = summary_state.get("current_winner_uid")
-    try:
-        reigning_uid = int(reigning_uid_raw) if reigning_uid_raw is not None else None
-    except Exception:
-        reigning_uid = None
-    if reigning_uid is not None:
-        leader_before = summary_state.get("current_winner_snapshot")
-        if not isinstance(leader_before, dict):
-            best_snapshots = summary_state.get("best_snapshot_by_miner", {})
-            if isinstance(best_snapshots, dict):
-                leader_before = best_snapshots.get(str(reigning_uid)) or best_snapshots.get(reigning_uid)
-        leader_before = _summary_snapshot_from_run(reigning_uid, leader_before)
+    reigning_uid = None
+    if int(round_number) > 1:
+        reigning_uid_raw = summary_state.get("current_winner_uid")
+        try:
+            reigning_uid = int(reigning_uid_raw) if reigning_uid_raw is not None else None
+        except Exception:
+            reigning_uid = None
+        if reigning_uid is not None:
+            leader_before = summary_state.get("current_winner_snapshot")
+            if not isinstance(leader_before, dict):
+                best_snapshots = summary_state.get("best_snapshot_by_miner", {})
+                if isinstance(best_snapshots, dict):
+                    leader_before = best_snapshots.get(str(reigning_uid)) or best_snapshots.get(reigning_uid)
+            leader_before = _summary_snapshot_from_run(reigning_uid, leader_before)
 
     ranked_candidates: list[tuple[tuple[float, float, float, int], dict[str, Any], dict[str, Any]]] = []
     for miner in miners_payload:
