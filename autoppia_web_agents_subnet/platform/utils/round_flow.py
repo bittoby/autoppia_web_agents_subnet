@@ -1240,7 +1240,8 @@ async def finish_round_flow(
             weight = final_weights.get(miner_uid, 0.0)
             rank = rank_map_consensus.get(miner_uid)
 
-            # Obtener stats: primero del consensus, luego locales como fallback
+            # Obtener stats: current-round stake-weighted first, then best-run consensus, then local fallback.
+            current_stats = current_stats_by_miner.get(miner_uid) or {}
             consensus_stats = stats_by_miner.get(miner_uid) or {}
             local_stats = local_stats_by_miner.get(miner_uid) or {}
             best_run_payload = getattr(ctx, "_best_run_payload_for_miner")(miner_uid)
@@ -1259,15 +1260,12 @@ async def finish_round_flow(
             except Exception:
                 pass
 
-            # avg_eval_score remains the pure quality metric. Consensus reward is what drives rank/weight.
-            post_consensus_avg_eval_score = consensus_stats.get("avg_eval_score")
-            if post_consensus_avg_eval_score is None:
-                # Fallback to local avg_eval_score if not in aggregated stats
-                post_consensus_avg_eval_score = local_avg_eval_scores.get(miner_uid, 0.0)
-
-            # These metrics are stake-weighted in consensus when available; otherwise local fallback.
-            avg_eval_time = consensus_stats.get("avg_eval_time") or local_stats.get("avg_eval_time", 0.0)
-            avg_cost = consensus_stats.get("avg_cost") or local_stats.get("avg_cost", 0.0)
+            # Prefer current-round aggregated stats (stake-weighted via aggregate_scores_from_commitments
+            # using current_run data) over the historical best-run consensus stats.
+            # This ensures time/cost/score reflect the actual round, not a cached prior round.
+            post_consensus_avg_eval_score = current_stats.get("avg_eval_score") or consensus_stats.get("avg_eval_score") or local_avg_eval_scores.get(miner_uid, 0.0)
+            avg_eval_time = current_stats.get("avg_eval_time") or consensus_stats.get("avg_eval_time") or local_stats.get("avg_eval_time", 0.0)
+            avg_cost = current_stats.get("avg_cost") or consensus_stats.get("avg_cost") or local_stats.get("avg_cost", 0.0)
             # IMPORTANT:
             # reward/score/time/cost here are consensus-level metrics, but the
             # task counters inside best/current runs should describe those runs
@@ -1281,7 +1279,6 @@ async def finish_round_flow(
             commit_sha = best_run_payload.get("commit_sha") if isinstance(best_run_payload, dict) else local_stats.get("commit_sha")
             evaluation_context = best_run_payload.get("evaluation_context") if isinstance(best_run_payload, dict) else local_stats.get("evaluation_context")
 
-            current_stats = current_stats_by_miner.get(miner_uid) or {}
             current_run_consensus = None
             if (isinstance(current_stats, dict) and current_stats) or isinstance(current_run_payload, dict):
                 current_run_consensus = {
