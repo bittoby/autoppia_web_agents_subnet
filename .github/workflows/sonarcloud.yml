@@ -118,12 +118,41 @@ jobs:
           path: reports/
           retention-days: 5
 
+      - name: Validate SonarCloud config
+        id: sonar_cfg
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          if [ -z "${SONAR_TOKEN:-}" ]; then
+            echo "::warning::SONAR_TOKEN is missing; skipping Sonar scan."
+            echo "run_sonar=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${SONAR_ORGANIZATION:-}" ]; then
+            echo "::error::SONAR_ORGANIZATION repository variable is missing."
+            echo "Set Settings -> Secrets and variables -> Actions -> Variables -> SONAR_ORGANIZATION."
+            exit 1
+          fi
+          if [ -z "${SONAR_PROJECT_KEY:-}" ]; then
+            echo "::warning::SONAR_PROJECT_KEY variable is missing; defaulting to autoppia-web-agents-subnet."
+            echo "SONAR_PROJECT_KEY=autoppia-web-agents-subnet" >> "$GITHUB_ENV"
+          else
+            echo "SONAR_PROJECT_KEY=${SONAR_PROJECT_KEY}" >> "$GITHUB_ENV"
+          fi
+          echo "SONAR_ORGANIZATION=${SONAR_ORGANIZATION}" >> "$GITHUB_ENV"
+          echo "run_sonar=true" >> "$GITHUB_OUTPUT"
+
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        if: steps.sonar_cfg.outputs.run_sonar == 'true'
+        uses: SonarSource/sonarqube-scan-action@v5.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY || 'autoppia-web-agents-subnet' }}
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.branch.name=${{ github.ref_name }}
             ${{ steps.sarif.outputs.has_sarif == 'true' && '-Dsonar.sarifReportPaths=reports/dependency-check-report.sarif' || '' }}
