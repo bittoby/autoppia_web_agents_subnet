@@ -25,18 +25,18 @@ BURN_AMOUNT_PERCENTAGE = _env_float("BURN_AMOUNT_PERCENTAGE", 0.925)
 # Season/round scheduling must always come from this file for the validator.
 # Do not read these values from the process environment, otherwise PM2 can keep
 # stale overrides after resets/restarts.
-SEASON_SIZE_EPOCHS = 1.6666667
-# 30 minutes with 360 blocks/epoch and ~12s/block => 150 blocks => 0.4166667 epochs
-ROUND_SIZE_EPOCHS = 0.4166667
+SEASON_SIZE_EPOCHS = 100
+# 8 hours with 360 blocks/epoch and ~12s/block => 2400 blocks => 6.666667 epochs | 3 rounds/day, 15 rounds/season, 5 days/season
+ROUND_SIZE_EPOCHS = 6.666667
 # IMPORTANT: season/round math uses MINIMUM_START_BLOCK always.
-MINIMUM_START_BLOCK = 7718218
+MINIMUM_START_BLOCK = 7723388
 STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION = _env_float("STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION", 0.94, test_default=0.94)
 FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION = _env_float("FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION", 0.97, test_default=0.97)
 SKIP_ROUND_IF_STARTED_AFTER_FRACTION = _env_float("SKIP_ROUND_IF_STARTED_AFTER_FRACTION", 0.30, test_default=0.30)
 
 # TASKS_PER_SEASON: Number of tasks to generate for each season (generated only in round 1)
 # Tasks are distributed round-robin across all demo projects (1 task per project per cycle)
-TASKS_PER_SEASON = _env_int("TASKS_PER_SEASON", 10, test_default=3)
+TASKS_PER_SEASON = 100
 CONCURRENT_EVALUATION_NUM = _env_int("CONCURRENT_EVALUATION_NUM", 5)
 AGENT_MAX_STEPS = _env_int("AGENT_MAX_STEPS", 12, test_default=12)
 AGENT_STEP_TIMEOUT_SECONDS = _env_int("AGENT_STEP_TIMEOUT_SECONDS", 25)
