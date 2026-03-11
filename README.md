@@ -1,9 +1,5 @@
 <div align="center">
-<picture>
-    <source srcset="icon48.png"  media="(prefers-color-scheme: dark)">
-    <source srcset="icon48.png"  media="(prefers-color-scheme: light)">
-    <img src="icon48.png">
-</picture>
+<img src="icon48.png" alt="icon48" width="96" />
 
 # **Web Agents Subnet 36 (Autoppia)** <!-- omit in toc -->
 
