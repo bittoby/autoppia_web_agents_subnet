@@ -27,7 +27,7 @@ BURN_AMOUNT_PERCENTAGE = _env_float("BURN_AMOUNT_PERCENTAGE", 0.925)
 # stale overrides after resets/restarts.
 SEASON_SIZE_EPOCHS = 100
 # 8 hours with 360 blocks/epoch and ~12s/block => 2400 blocks => 6.666667 epochs | 3 rounds/day, 15 rounds/season, 5 days/season
-ROUND_SIZE_EPOCHS = 6.666667
+ROUND_SIZE_EPOCHS = 5
 # IMPORTANT: season/round math uses MINIMUM_START_BLOCK always.
 MINIMUM_START_BLOCK = 7723388
 STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION = _env_float("STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION", 0.94, test_default=0.94)
