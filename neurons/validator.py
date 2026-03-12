@@ -9,6 +9,10 @@ import time
 from pathlib import Path
 
 import bittensor as bt
+from autoppia_iwa.config.env import init_env
+
+init_env(override=True)
+
 from autoppia_iwa.src.bootstrap import AppBootstrap
 
 from autoppia_web_agents_subnet import SUBNET_IWA_VERSION
