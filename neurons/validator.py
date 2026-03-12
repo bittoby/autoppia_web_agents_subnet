@@ -165,6 +165,32 @@ class Validator(
         self._evaluated_commits_by_miner = {}
         bt.logging.warning(f"Evaluation context changed; cleared {removed_round_dirs} round artifact directories and reset local competition/reuse state while preserving season tasks.")
 
+    def _clear_all_artifacts_including_tasks(self) -> None:
+        base = self._state_summary_root()
+        removed_entries = 0
+        for season_dir in sorted(base.glob("season_*")):
+            if not season_dir.is_dir():
+                continue
+            try:
+                shutil.rmtree(season_dir)
+                removed_entries += 1
+            except Exception as exc:
+                bt.logging.warning(f"Could not remove season artifact directory {season_dir}: {exc}")
+        self._season_competition_history = {}
+        self._evaluated_commits_by_miner = {}
+        bt.logging.warning(f"Major validator version change detected; cleared {removed_entries} season artifact directories, including season tasks.")
+
+    @staticmethod
+    def _version_major(version: object) -> int | None:
+        try:
+            text = str(version or "").strip()
+            if not text:
+                return None
+            head = text.split(".", 1)[0]
+            return int(head)
+        except Exception:
+            return None
+
     def _invalidate_round_artifacts_if_context_changed(self) -> None:
         saved_context = self._load_saved_artifact_context()
         current_context = self._artifact_context_payload()
@@ -174,8 +200,13 @@ class Validator(
         saved_hash = str(saved_context.get("evaluation_context_hash", "") or "")
         current_hash = str(current_context.get("evaluation_context_hash", "") or "")
         if saved_hash and current_hash and saved_hash != current_hash:
-            bt.logging.warning(f"Detected validator evaluation-context change (saved={saved_hash}, current={current_hash}). Preserving season tasks but resetting round artifacts/history.")
-            self._clear_round_artifacts_preserving_tasks()
+            saved_major = self._version_major(saved_context.get("minimum_validator_version"))
+            current_major = self._version_major(current_context.get("minimum_validator_version"))
+            bt.logging.warning(f"Detected validator evaluation-context change (saved={saved_hash}, current={current_hash}).")
+            if saved_major is not None and current_major is not None and saved_major != current_major:
+                self._clear_all_artifacts_including_tasks()
+            else:
+                self._clear_round_artifacts_preserving_tasks()
         self._persist_artifact_context()
 
     def _save_competition_state(self) -> None:
