@@ -100,8 +100,7 @@ def commitment_detail_table(data: dict) -> "Table":
     from rich.table import Table
     _FIELD_LABELS = {
         "t": ("Type", lambda v: "miner" if v == "m" else "validator" if v == "v" else str(v)),
-        "g": ("GitHub repo", str),
-        "h": ("Commit/ref", str),
+        "g": ("GitHub URL", str),
         "n": ("Agent name", str),
         "r": ("Round", str),
         "s": ("Season", str),

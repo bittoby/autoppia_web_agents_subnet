@@ -66,8 +66,14 @@ async def _submit(args: argparse.Namespace) -> None:
               "       Must be https://github.com/owner/repo/tree/<ref> or /commit/<sha>.")
         sys.exit(1)
 
-    # Store as "owner/repo" + ref separately to save bytes (128-byte on-chain limit)
-    repo_short = normalized.removeprefix("https://github.com/")
+    # Store single "g" = repo path only (strip https://github.com and .git) to save bytes.
+    github_url = normalized.removeprefix("https://github.com/")
+    if ref:
+        for ref_type in ["/tree/", "/commit/"]:
+            if ref_type in args.github:
+                github_url = f"{github_url}{ref_type}{ref}"
+                break
+
     agent_name = args.agent_name.strip()
     if not agent_name:
         error("Agent name must not be empty.")
@@ -96,7 +102,7 @@ async def _submit(args: argparse.Namespace) -> None:
         args.target_round = prompt_int_if_missing(args, "target_round", "Target round", default=default_target)
         target_round = args.target_round
 
-        payload = {"t": "m", "g": repo_short, "h": ref,
+        payload = {"t": "m", "g": github_url,
                    "n": agent_name, "r": int(target_round), "s": int(season)}
         if agent_image:
             payload["i"] = agent_image
