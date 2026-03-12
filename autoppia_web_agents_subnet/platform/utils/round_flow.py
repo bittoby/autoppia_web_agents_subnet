@@ -724,6 +724,7 @@ async def register_participating_miners_in_iwap(ctx) -> None:
             is_sota=False,
             version=None,
             started_at=now_ts,
+            total_tasks=int(len(getattr(ctx, "season_tasks", []) or []) or 0),
             metadata={"handshake_note": getattr(handshake_payload, "note", None)},
         )
 

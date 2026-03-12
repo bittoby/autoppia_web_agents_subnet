@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
+import shutil
 import time
 from pathlib import Path
 
@@ -14,6 +16,7 @@ from autoppia_web_agents_subnet.base.validator import BaseValidatorNeuron
 from autoppia_web_agents_subnet.bittensor_config import config
 from autoppia_web_agents_subnet.opensource.sandbox_manager import SandboxManager
 from autoppia_web_agents_subnet.platform.validator_mixin import ValidatorPlatformMixin
+from autoppia_web_agents_subnet.validator import config as validator_config
 from autoppia_web_agents_subnet.validator.config import (
     BURN_UID,
     ROUND_SIZE_EPOCHS,
@@ -92,6 +95,88 @@ class Validator(
         round_dir = self._season_dir_path(season_number) / f"round_{int(round_number)}"
         round_dir.mkdir(parents=True, exist_ok=True)
         return round_dir
+
+    def _artifact_context_metadata_path(self) -> Path:
+        return self._state_summary_root() / "evaluation_context.json"
+
+    def _artifact_context_payload(self) -> dict[str, object]:
+        try:
+            round_size_epochs = float(getattr(validator_config, "ROUND_SIZE_EPOCHS", ROUND_SIZE_EPOCHS) or ROUND_SIZE_EPOCHS)
+        except Exception:
+            round_size_epochs = float(ROUND_SIZE_EPOCHS or 0.0)
+        try:
+            season_size_epochs = float(getattr(validator_config, "SEASON_SIZE_EPOCHS", 0.0) or 0.0)
+        except Exception:
+            season_size_epochs = 0.0
+        try:
+            blocks_per_epoch = int(getattr(getattr(self, "round_manager", None), "BLOCKS_PER_EPOCH", None) or getattr(validator_config, "BLOCKS_PER_EPOCH", None) or 360)
+        except Exception:
+            blocks_per_epoch = 360
+        try:
+            minimum_start_block = int(getattr(validator_config, "MINIMUM_START_BLOCK", 0) or 0)
+        except Exception:
+            minimum_start_block = 0
+        minimum_validator_version = str(getattr(self, "version", "") or "")
+        context_without_hash = {
+            "round_size_epochs": round_size_epochs,
+            "season_size_epochs": season_size_epochs,
+            "blocks_per_epoch": blocks_per_epoch,
+            "minimum_start_block": minimum_start_block,
+            "minimum_validator_version": minimum_validator_version,
+        }
+        context_json = json.dumps(context_without_hash, sort_keys=True, separators=(",", ":"))
+        return {
+            **context_without_hash,
+            "evaluation_context_hash": f"sha256:{hashlib.sha256(context_json.encode('utf-8')).hexdigest()}",
+        }
+
+    def _load_saved_artifact_context(self) -> dict[str, object] | None:
+        target = self._artifact_context_metadata_path()
+        if not target.exists():
+            return None
+        try:
+            with target.open("r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _persist_artifact_context(self) -> None:
+        target = self._artifact_context_metadata_path()
+        payload = self._artifact_context_payload()
+        with target.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, sort_keys=True)
+
+    def _clear_round_artifacts_preserving_tasks(self) -> None:
+        base = self._state_summary_root()
+        removed_round_dirs = 0
+        for season_dir in sorted(base.glob("season_*")):
+            if not season_dir.is_dir():
+                continue
+            for round_dir in sorted(season_dir.glob("round_*")):
+                if not round_dir.is_dir():
+                    continue
+                try:
+                    shutil.rmtree(round_dir)
+                    removed_round_dirs += 1
+                except Exception as exc:
+                    bt.logging.warning(f"Could not remove round artifact directory {round_dir}: {exc}")
+        self._season_competition_history = {}
+        self._evaluated_commits_by_miner = {}
+        bt.logging.warning(f"Evaluation context changed; cleared {removed_round_dirs} round artifact directories and reset local competition/reuse state while preserving season tasks.")
+
+    def _invalidate_round_artifacts_if_context_changed(self) -> None:
+        saved_context = self._load_saved_artifact_context()
+        current_context = self._artifact_context_payload()
+        if not isinstance(saved_context, dict):
+            self._persist_artifact_context()
+            return
+        saved_hash = str(saved_context.get("evaluation_context_hash", "") or "")
+        current_hash = str(current_context.get("evaluation_context_hash", "") or "")
+        if saved_hash and current_hash and saved_hash != current_hash:
+            bt.logging.warning(f"Detected validator evaluation-context change (saved={saved_hash}, current={current_hash}). Preserving season tasks but resetting round artifacts/history.")
+            self._clear_round_artifacts_preserving_tasks()
+        self._persist_artifact_context()
 
     def _save_competition_state(self) -> None:
         """Persist canonical post-consensus artifacts under season/round folders."""
@@ -307,6 +392,10 @@ class Validator(
             self._save_competition_state()
         except Exception as exc:
             bt.logging.warning(f"Failed to save competition state: {exc}")
+        try:
+            self._persist_artifact_context()
+        except Exception as exc:
+            bt.logging.warning(f"Failed to persist evaluation context metadata: {exc}")
 
     def load_state(self):
         """Load base validator state + season/round artifacts."""
@@ -314,6 +403,10 @@ class Validator(
             super().load_state()
         except Exception as exc:
             bt.logging.warning(f"Could not load base state.npz (starting fresh): {exc}")
+        try:
+            self._invalidate_round_artifacts_if_context_changed()
+        except Exception as exc:
+            bt.logging.warning(f"Could not validate/reset round artifacts for changed evaluation context: {exc}")
         try:
             self._load_competition_state()
         except Exception as exc:

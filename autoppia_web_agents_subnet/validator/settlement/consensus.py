@@ -743,16 +743,26 @@ async def aggregate_scores_from_commitments(
             bt.logging.info(f"[CONSENSUS] Skip {hk[:12]}... | Reason: payload is not dict")
             continue
 
-        # También debe coincidir el validator_version del payload con el de este validator.
+        # Validator version must be compatible (same major.minor) to be included in consensus.
+        # Strict patch-level equality would isolate validators on minor version bumps.
         expected_validator_version = getattr(self, "version", None)
         if expected_validator_version is not None:
             payload_validator_version = payload.get("validator_version")
-            if payload_validator_version != expected_validator_version:
-                skipped_wrong_validator_version += 1
-                pv_str = str(payload_validator_version) if payload_validator_version is not None else "missing"
-                skipped_wrong_validator_version_list.append((hk, pv_str))
-                bt.logging.debug(f"⏭️ Skip {hk[:10]}…: wrong validator_version (payload has {pv_str}, need {expected_validator_version})")
-                continue
+            if payload_validator_version is not None:
+
+                def _major_minor(v: str) -> tuple[int, int]:
+                    try:
+                        parts = str(v).split(".")
+                        return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+                    except Exception:
+                        return (-1, -1)
+
+                if _major_minor(payload_validator_version) != _major_minor(expected_validator_version):
+                    skipped_wrong_validator_version += 1
+                    pv_str = str(payload_validator_version)
+                    skipped_wrong_validator_version_list.append((hk, pv_str))
+                    bt.logging.debug(f"⏭️ Skip {hk[:10]}…: incompatible validator_version (payload has {pv_str}, need major.minor={'.'.join(str(x) for x in _major_minor(expected_validator_version))})")
+                    continue
 
         rewards, miner_metrics = _extract_metrics_from_payload(payload)
         current_run_metrics = _extract_current_run_metrics_from_payload(payload)

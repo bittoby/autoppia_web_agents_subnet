@@ -166,14 +166,14 @@ class ValidatorEvaluationMixin:
                     if run and normalized_repo and commit_sha:
                         acc = getattr(self, "agent_run_accumulators", {}).get(agent.uid, {})  # type: ignore[attr-defined]
                         tasks = int(acc.get("tasks", 0) or 0)
-                        reward_sum = float(acc.get("reward", 0.0) or 0.0)
-                        eval_sum = float(acc.get("eval_score", 0.0) or 0.0)
-                        time_sum = float(acc.get("execution_time", 0.0) or 0.0)
-                        cost_sum = float(acc.get("cost", 0.0) or 0.0)
-                        avg_score = (eval_sum / tasks) if tasks else (getattr(run, "average_score", None) or 0.0)
-                        avg_reward = (reward_sum / tasks) if tasks else (getattr(run, "average_reward", None) or 0.0)
-                        avg_time = (time_sum / tasks) if tasks else (getattr(run, "average_execution_time", None) or 0.0)
-                        avg_cost = (cost_sum / tasks) if tasks else 0.0
+                        avg_score = float(getattr(run, "average_score", None) or 0.0)
+                        avg_reward = float(getattr(run, "average_reward", None) or 0.0)
+                        avg_time = float(getattr(run, "average_execution_time", None) or 0.0)
+                        try:
+                            run_meta = dict(getattr(run, "metadata", {}) or {})
+                        except Exception:
+                            run_meta = {}
+                        avg_cost = float(run_meta.get("average_cost", 0.0) or 0.0)
                         round_rewards = getattr(getattr(self, "round_manager", None), "round_rewards", {}) or {}
                         miner_rewards = round_rewards.get(agent.uid, []) or []  # type: ignore[attr-defined]
                         success_tasks = len([r for r in miner_rewards if float(r) >= 0.5])
@@ -182,9 +182,9 @@ class ValidatorEvaluationMixin:
                             "average_reward": avg_reward,
                             "average_execution_time": avg_time,
                             "average_cost": avg_cost,
-                            "total_tasks": tasks or len(miner_rewards),
+                            "total_tasks": int(total_tasks or tasks or len(miner_rewards)),
                             "success_tasks": success_tasks,
-                            "failed_tasks": (tasks or len(miner_rewards)) - success_tasks,
+                            "failed_tasks": max(int(total_tasks or tasks or len(miner_rewards)) - success_tasks, 0),
                             "zero_reason": getattr(agent, "zero_reason", None),
                             "github_url": getattr(agent, "github_url", None),
                             "normalized_repo": getattr(agent, "normalized_repo", None),
@@ -254,20 +254,22 @@ class ValidatorEvaluationMixin:
 
             run = getattr(self, "current_agent_runs", {}).get(agent_uid)
             if run is not None:
-                total_tasks = int(acc.get("tasks", 0) or 0)
+                attempted_tasks = int(acc.get("tasks", 0) or 0)
+                expected_total_tasks = int(getattr(run, "total_tasks", 0) or total_tasks or attempted_tasks)
+                total_tasks_for_run = max(expected_total_tasks, attempted_tasks)
                 success_tasks = len([r for r in (getattr(round_manager, "round_rewards", {}) or {}).get(agent_uid, []) if float(r) >= 0.5])
-                failed_tasks = max(total_tasks - success_tasks, 0)
-                run.total_tasks = total_tasks
+                failed_tasks = max(total_tasks_for_run - success_tasks, 0)
+                run.total_tasks = total_tasks_for_run
                 run.completed_tasks = success_tasks
                 run.failed_tasks = failed_tasks
                 run.total_reward = float(acc.get("reward", 0.0) or 0.0)
-                run.average_reward = (float(acc["reward"]) / float(total_tasks)) if total_tasks > 0 else 0.0
-                run.average_score = (float(acc["eval_score"]) / float(total_tasks)) if total_tasks > 0 else 0.0
-                run.average_execution_time = (float(acc["execution_time"]) / float(total_tasks)) if total_tasks > 0 else 0.0
+                run.average_reward = (float(acc["reward"]) / float(total_tasks_for_run)) if total_tasks_for_run > 0 else 0.0
+                run.average_score = (float(acc["eval_score"]) / float(total_tasks_for_run)) if total_tasks_for_run > 0 else 0.0
+                run.average_execution_time = (float(acc["execution_time"]) / float(attempted_tasks)) if attempted_tasks > 0 else 0.0
                 try:
                     meta = dict(getattr(run, "metadata", {}) or {})
                     meta["total_cost"] = float(acc.get("cost", 0.0) or 0.0)
-                    meta["average_cost"] = (float(acc["cost"]) / float(total_tasks)) if total_tasks > 0 else 0.0
+                    meta["average_cost"] = (float(acc["cost"]) / float(attempted_tasks)) if attempted_tasks > 0 else 0.0
                     run.metadata = meta
                 except Exception:
                     pass
@@ -715,7 +717,7 @@ class ValidatorEvaluationMixin:
                             )
                             if cost_limit_hits >= cost_limit_exceed_count:
                                 ColoredLogger.warning(
-                                    f"Agent {agent.uid} hit max over-cost task limit ({cost_limit_exceed_count}); stopping remaining tasks and forcing score=0",
+                                    f"Agent {agent.uid} hit max over-cost task limit ({cost_limit_exceed_count}); stopping remaining tasks",
                                     ColoredLogger.YELLOW,
                                 )
                                 stop_for_cost_limit_streak = True
@@ -789,12 +791,17 @@ class ValidatorEvaluationMixin:
 
             # Update agent score/evaluated state and increment the counter.
             if stop_for_cost_limit_streak:
+                avg_reward = (sum(rewards) / float(total_tasks)) if total_tasks > 0 else 0.0
                 ColoredLogger.warning(
                     f"Agent {agent.uid} stopped after {tasks_evaluated_for_agent}/{total_tasks} evaluated tasks "
-                    f"due to {cost_limit_hits} over-cost tasks (limit={cost_limit_exceed_count}); final score forced to 0",
+                    f"due to {cost_limit_hits} over-cost tasks (limit={cost_limit_exceed_count}); final reward={avg_reward:.4f}",
                     ColoredLogger.YELLOW,
                 )
-                _finalize_agent(agent, score=0.0, zero_reason="over_cost_limit")
+                _finalize_agent(
+                    agent,
+                    score=float(avg_reward),
+                    zero_reason="over_cost_limit" if avg_reward <= 0.0 else None,
+                )
             else:
                 avg_reward = (sum(rewards) / float(total_tasks)) if total_tasks > 0 else 0.0
                 if avg_reward <= 0.0:
