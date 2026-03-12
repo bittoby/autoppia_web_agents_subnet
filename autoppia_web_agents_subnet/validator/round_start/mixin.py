@@ -480,8 +480,16 @@ class ValidatorRoundStartMixin:
 
             # Extract fields from commitment payload.
             agent_name = str(commitment.get("n") or "").strip() or None
-            raw_github_url = str(commitment.get("g") or "").strip() or None
             agent_image = str(commitment.get("i") or "").strip() or None
+
+            # "g" may be a full URL (legacy) or "owner/repo" (compact).
+            # "h" holds the commit/ref when compact format is used.
+            raw_g = str(commitment.get("g") or "").strip()
+            raw_h = str(commitment.get("h") or "").strip()
+            if raw_g and not raw_g.startswith("http") and raw_h:
+                raw_github_url = f"https://github.com/{raw_g}/tree/{raw_h}"
+            else:
+                raw_github_url = raw_g or None
 
             if not agent_name or not raw_github_url:
                 # Strict: an explicit submission is required.
