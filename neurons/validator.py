@@ -9,9 +9,29 @@ import time
 from pathlib import Path
 
 import bittensor as bt
-from autoppia_iwa.config.env import init_env
 
-init_env(override=True)
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - validator can still rely on process env
+
+    def load_dotenv(*_args, **_kwargs):
+        return False
+
+
+def _init_validator_entrypoint_env() -> None:
+    """
+    Load the validator entrypoint environment from the subnet repo root.
+
+    The validator process belongs to `autoppia_web_agents_subnet`, so its
+    authoritative `.env` must be resolved from this repo, not from the sibling
+    `autoppia_iwa` package.
+    """
+
+    repo_root = Path(__file__).resolve().parents[1]
+    load_dotenv(repo_root / ".env", override=True)
+
+
+_init_validator_entrypoint_env()
 
 from autoppia_iwa.src.bootstrap import AppBootstrap
 
