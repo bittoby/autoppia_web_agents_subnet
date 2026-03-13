@@ -5,6 +5,7 @@ import asyncio
 import threading
 import time
 import traceback
+from typing import Tuple
 
 import bittensor as bt
 
@@ -124,7 +125,7 @@ class BaseMinerNeuron(BaseNeuron):
 
     # ─────────────────────── Blacklists ───────────────────────
 
-    async def blacklist(self, synapse: StartRoundSynapse) -> tuple[bool, str]:
+    async def blacklist(self, synapse: StartRoundSynapse) -> Tuple[bool, str]:
         if synapse.dendrite is None or synapse.dendrite.hotkey is None:
             bt.logging.warning("Received a request without a dendrite or hotkey.")
             return True, "Missing dendrite or hotkey"
