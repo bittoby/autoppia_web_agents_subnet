@@ -195,6 +195,22 @@ class Validator(
         except Exception:
             return None
 
+    @staticmethod
+    def _version_tuple(version: object) -> tuple[int, ...] | None:
+        try:
+            text = str(version or "").strip()
+            if not text:
+                return None
+            parts = []
+            for piece in text.split("."):
+                digits = "".join(ch for ch in piece if ch.isdigit())
+                if not digits:
+                    break
+                parts.append(int(digits))
+            return tuple(parts) if parts else None
+        except Exception:
+            return None
+
     def _invalidate_round_artifacts_if_context_changed(self) -> None:
         saved_context = self._load_saved_artifact_context()
         current_context = self._artifact_context_payload()
@@ -204,10 +220,24 @@ class Validator(
         saved_hash = str(saved_context.get("evaluation_context_hash", "") or "")
         current_hash = str(current_context.get("evaluation_context_hash", "") or "")
         if saved_hash and current_hash and saved_hash != current_hash:
+            saved_version = str(saved_context.get("minimum_validator_version", "") or "").strip()
+            current_version = str(current_context.get("minimum_validator_version", "") or "").strip()
+            saved_version_tuple = self._version_tuple(saved_version)
+            current_version_tuple = self._version_tuple(current_version)
             saved_major = self._version_major(saved_context.get("minimum_validator_version"))
             current_major = self._version_major(current_context.get("minimum_validator_version"))
             bt.logging.warning(f"Detected validator evaluation-context change (saved={saved_hash}, current={current_hash}).")
-            if saved_major is not None and current_major is not None and saved_major != current_major:
+            version_bumped = False
+            if saved_version_tuple is not None and current_version_tuple is not None:
+                version_bumped = current_version_tuple > saved_version_tuple
+            elif saved_version and current_version and saved_version != current_version:
+                # If we cannot compare semantically, fail safe and invalidate all local artifacts.
+                version_bumped = True
+
+            if version_bumped:
+                bt.logging.warning(f"Validator version bump detected (saved={saved_version or '<missing>'}, current={current_version or '<missing>'}); clearing all local artifacts.")
+                self._clear_all_artifacts_including_tasks()
+            elif saved_major is not None and current_major is not None and saved_major != current_major:
                 self._clear_all_artifacts_including_tasks()
             else:
                 self._clear_round_artifacts_preserving_tasks()
