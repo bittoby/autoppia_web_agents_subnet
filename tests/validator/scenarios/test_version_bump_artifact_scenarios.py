@@ -23,6 +23,7 @@ def _bind_version_helpers(validator):
     validator._normalize_artifact_context_mapping = Validator._normalize_artifact_context_mapping.__get__(validator, type(validator))
     validator._iter_artifact_context_candidates = Validator._iter_artifact_context_candidates.__get__(validator, type(validator))
     validator._infer_saved_artifact_context_from_existing_artifacts = Validator._infer_saved_artifact_context_from_existing_artifacts.__get__(validator, type(validator))
+    validator._find_stale_artifact_context_against_current = Validator._find_stale_artifact_context_against_current.__get__(validator, type(validator))
     validator._clear_round_artifacts_preserving_tasks = Validator._clear_round_artifacts_preserving_tasks.__get__(validator, type(validator))
     validator._clear_all_artifacts_preserving_tasks = Validator._clear_all_artifacts_preserving_tasks.__get__(validator, type(validator))
     validator._clear_all_artifacts_including_tasks = Validator._clear_all_artifacts_including_tasks.__get__(validator, type(validator))
@@ -458,6 +459,56 @@ def test_missing_saved_metadata_but_same_inferred_context_keeps_artifacts_and_re
         commit_sha="deadbeef",
     )
     assert reusable is not None
+
+
+@pytest.mark.integration
+def test_current_metadata_does_not_hide_stale_major_artifacts_on_disk(tmp_path):
+    """
+    Scenario:
+    The validator already has a fresh `evaluation_context.json` for the current version,
+    but historical season artifacts on disk still embed an older evaluation context.
+
+    What this test proves:
+    a stale artifact payload cannot survive just because the metadata file was already
+    rewritten to the current version; the validator still forces a major-version cleanup.
+    """
+    validator = _make_validator(tmp_path, version="19.0.0")
+    _seed_season_artifacts_with_context(tmp_path, version="16.0.0", minimum_start_block=7736300)
+    _write_saved_context(tmp_path, version="19.0.0", minimum_start_block=7740451)
+
+    validator._invalidate_round_artifacts_if_context_changed()
+
+    remaining_entries = sorted(path.name for path in tmp_path.iterdir())
+    assert remaining_entries == ["evaluation_context.json"]
+    persisted_context = json.loads((tmp_path / "evaluation_context.json").read_text(encoding="utf-8"))
+    assert persisted_context["minimum_validator_version"] == "19.0.0"
+    assert persisted_context["minimum_start_block"] == 7740451
+
+
+@pytest.mark.integration
+def test_current_metadata_does_not_hide_stale_minor_artifacts_on_disk(tmp_path):
+    """
+    Scenario:
+    The validator metadata file already matches the current minor version, but the
+    saved round artifacts still come from the previous minor version/context.
+
+    What this test proves:
+    stale artifacts on disk still trigger the non-major cleanup policy:
+    season tasks survive, but round/IPFS state is removed.
+    """
+    validator = _make_validator(tmp_path, version="19.1.0")
+    _seed_season_artifacts_with_context(tmp_path, version="19.0.0", minimum_start_block=7740451)
+    _write_saved_context(tmp_path, version="19.1.0", minimum_start_block=7740555)
+
+    validator._invalidate_round_artifacts_if_context_changed()
+
+    assert (tmp_path / "season_1").exists()
+    assert (tmp_path / "season_1" / "tasks.json").exists()
+    assert (tmp_path / "season_tasks" / "season_1_tasks.json").exists()
+    assert not (tmp_path / "season_1" / "round_1").exists()
+    persisted_context = json.loads((tmp_path / "evaluation_context.json").read_text(encoding="utf-8"))
+    assert persisted_context["minimum_validator_version"] == "19.1.0"
+    assert persisted_context["minimum_start_block"] == int(validator_config.MINIMUM_START_BLOCK)
 
 
 @pytest.mark.integration

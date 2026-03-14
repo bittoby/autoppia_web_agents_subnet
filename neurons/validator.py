@@ -264,6 +264,55 @@ class Validator(
                 return normalized
         return None
 
+    def _find_stale_artifact_context_against_current(self, current_context: dict[str, object]) -> dict[str, object] | None:
+        base = self._state_summary_root()
+        if not base.exists():
+            return None
+
+        current_hash = str(current_context.get("evaluation_context_hash", "") or "").strip()
+        current_version = str(current_context.get("minimum_validator_version", "") or "").strip()
+        current_start_block = int(current_context.get("minimum_start_block", 0) or 0)
+
+        candidate_files: list[Path] = []
+        for season_dir in sorted(base.glob("season_*")):
+            if not season_dir.is_dir():
+                continue
+            for round_dir in sorted(season_dir.glob("round_*")):
+                if not round_dir.is_dir():
+                    continue
+                for filename in ("ipfs_uploaded.json", "ipfs_downloaded.json", "post_consensus.json"):
+                    candidate = round_dir / filename
+                    if candidate.exists() and candidate.is_file():
+                        candidate_files.append(candidate)
+
+        for candidate in candidate_files:
+            try:
+                with candidate.open("r", encoding="utf-8") as f:
+                    payload = json.load(f)
+            except Exception:
+                continue
+            for normalized in self._iter_artifact_context_candidates(payload):
+                artifact_hash = str(normalized.get("evaluation_context_hash", "") or "").strip()
+                artifact_version = str(normalized.get("minimum_validator_version", "") or "").strip()
+                try:
+                    artifact_start_block = int(normalized.get("minimum_start_block", 0) or 0)
+                except Exception:
+                    artifact_start_block = 0
+
+                mismatched = artifact_hash != current_hash if current_hash and artifact_hash else artifact_version != current_version or artifact_start_block != current_start_block
+                if not mismatched:
+                    continue
+
+                bt.logging.warning(
+                    f"Detected stale validator artifact context in {candidate.name}; "
+                    f"artifact_version={artifact_version or '<missing>'}, "
+                    f"artifact_start_block={artifact_start_block}, "
+                    f"current_version={current_version or '<missing>'}, "
+                    f"current_start_block={current_start_block}"
+                )
+                return normalized
+        return None
+
     def _clear_round_artifacts_preserving_tasks(self) -> None:
         base = self._state_summary_root()
         removed_round_dirs = 0
@@ -357,8 +406,11 @@ class Validator(
             return None
 
     def _invalidate_round_artifacts_if_context_changed(self) -> None:
-        saved_context = self._load_saved_artifact_context()
         current_context = self._artifact_context_payload()
+        saved_context = self._load_saved_artifact_context()
+        stale_artifact_context = self._find_stale_artifact_context_against_current(current_context)
+        if isinstance(stale_artifact_context, dict):
+            saved_context = stale_artifact_context
         if not isinstance(saved_context, dict):
             saved_context = self._infer_saved_artifact_context_from_existing_artifacts()
             if not isinstance(saved_context, dict):
