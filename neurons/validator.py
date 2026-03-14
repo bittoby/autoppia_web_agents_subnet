@@ -189,20 +189,52 @@ class Validator(
         self._evaluated_commits_by_miner = {}
         bt.logging.warning(f"Evaluation context changed; cleared {removed_round_dirs} round artifact directories and reset local competition/reuse state while preserving season tasks.")
 
+    def _clear_all_artifacts_preserving_tasks(self) -> None:
+        base = self._state_summary_root()
+        removed_entries = 0
+        for entry in sorted(base.iterdir()):
+            if entry.name == "season_tasks":
+                continue
+            if entry.is_dir() and entry.name.startswith("season_"):
+                for child in sorted(entry.iterdir()):
+                    if child.name == "tasks.json" and child.is_file():
+                        continue
+                    try:
+                        if child.is_dir():
+                            shutil.rmtree(child)
+                        else:
+                            child.unlink()
+                        removed_entries += 1
+                    except Exception as exc:
+                        bt.logging.warning(f"Could not remove validator state entry {child}: {exc}")
+                continue
+            try:
+                if entry.is_dir():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+                removed_entries += 1
+            except Exception as exc:
+                bt.logging.warning(f"Could not remove validator state entry {entry}: {exc}")
+        self._season_competition_history = {}
+        self._evaluated_commits_by_miner = {}
+        bt.logging.warning(f"Validator version bump detected without major change; cleared {removed_entries} validator state entries while preserving season tasks.")
+
     def _clear_all_artifacts_including_tasks(self) -> None:
         base = self._state_summary_root()
         removed_entries = 0
-        for season_dir in sorted(base.glob("season_*")):
-            if not season_dir.is_dir():
-                continue
+        for entry in sorted(base.iterdir()):
             try:
-                shutil.rmtree(season_dir)
+                if entry.is_dir():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
                 removed_entries += 1
             except Exception as exc:
-                bt.logging.warning(f"Could not remove season artifact directory {season_dir}: {exc}")
+                bt.logging.warning(f"Could not remove validator state entry {entry}: {exc}")
         self._season_competition_history = {}
         self._evaluated_commits_by_miner = {}
-        bt.logging.warning(f"Major validator version change detected; cleared {removed_entries} season artifact directories, including season tasks.")
+        bt.logging.warning(f"Major validator version change detected; cleared {removed_entries} validator state entries, including season tasks and root metadata.")
 
     @staticmethod
     def _version_major(version: object) -> int | None:
@@ -255,8 +287,14 @@ class Validator(
                 version_bumped = True
 
             if version_bumped:
-                bt.logging.warning(f"Validator version bump detected (saved={saved_version or '<missing>'}, current={current_version or '<missing>'}); clearing all local artifacts.")
-                self._clear_all_artifacts_including_tasks()
+                if saved_major is not None and current_major is not None and saved_major != current_major:
+                    bt.logging.warning(f"Major validator version bump detected (saved={saved_version or '<missing>'}, current={current_version or '<missing>'}); clearing all local artifacts.")
+                    self._clear_all_artifacts_including_tasks()
+                else:
+                    bt.logging.warning(
+                        f"Validator version bump detected (saved={saved_version or '<missing>'}, current={current_version or '<missing>'}); clearing local artifacts but preserving season tasks."
+                    )
+                    self._clear_all_artifacts_preserving_tasks()
             elif saved_major is not None and current_major is not None and saved_major != current_major:
                 self._clear_all_artifacts_including_tasks()
             else:
@@ -290,6 +328,95 @@ class Validator(
                         target = round_dir / "post_consensus.json"
                         with target.open("w", encoding="utf-8") as f:
                             json.dump(post_consensus_json_in, f, indent=2, sort_keys=True)
+
+    @staticmethod
+    def _winner_snapshot_from_post_consensus(post_consensus_json: dict) -> dict | None:
+        miners = post_consensus_json.get("miners")
+        if not isinstance(miners, list):
+            return None
+        winner: dict | None = None
+        winner_reward = float("-inf")
+        for miner_entry in miners:
+            if not isinstance(miner_entry, dict):
+                continue
+            try:
+                uid_i = int(miner_entry.get("uid"))
+            except Exception:
+                continue
+            if uid_i == int(BURN_UID):
+                continue
+            best_run = miner_entry.get("best_run_consensus")
+            if not isinstance(best_run, dict):
+                continue
+            try:
+                reward_f = float(best_run.get("reward", 0.0) or 0.0)
+            except Exception:
+                reward_f = 0.0
+            if reward_f < winner_reward:
+                continue
+            winner_reward = reward_f
+            winner = {
+                "uid": uid_i,
+                "reward": reward_f,
+                "score": float(best_run.get("score", 0.0) or 0.0),
+                "time": float(best_run.get("time", 0.0) or 0.0),
+                "cost": float(best_run.get("cost", 0.0) or 0.0),
+            }
+        return winner
+
+    @classmethod
+    def _coerce_loaded_leader_after_snapshot(cls, post_consensus_json: dict) -> dict | None:
+        """
+        Repair impossible persisted leader snapshots before they are rehydrated.
+
+        This protects restarts from stale local `post_consensus.json` files where
+        `leader_after_round` disagrees with the actual winner of the round.
+        """
+        summary = post_consensus_json.get("summary")
+        if not isinstance(summary, dict):
+            return cls._winner_snapshot_from_post_consensus(post_consensus_json)
+
+        winner = cls._winner_snapshot_from_post_consensus(post_consensus_json)
+        leader_after = summary.get("leader_after_round")
+        leader_before = summary.get("leader_before_round")
+        candidate = summary.get("candidate_this_round")
+
+        if not isinstance(leader_after, dict):
+            return winner
+
+        if not isinstance(leader_before, dict):
+            return winner or leader_after
+
+        try:
+            required_improvement_pct = float(summary.get("percentage_to_dethrone", 0.0) or 0.0)
+        except Exception:
+            required_improvement_pct = 0.0
+
+        if not isinstance(candidate, dict):
+            return leader_after
+
+        try:
+            candidate_uid = int(candidate.get("uid")) if candidate.get("uid") is not None else None
+        except Exception:
+            candidate_uid = None
+        try:
+            leader_before_uid = int(leader_before.get("uid")) if leader_before.get("uid") is not None else None
+        except Exception:
+            leader_before_uid = None
+        try:
+            candidate_reward = float(candidate.get("reward", 0.0) or 0.0)
+        except Exception:
+            candidate_reward = 0.0
+        try:
+            leader_before_reward = float(leader_before.get("reward", 0.0) or 0.0)
+        except Exception:
+            leader_before_reward = 0.0
+
+        threshold = leader_before_reward * (1.0 + required_improvement_pct)
+        candidate_should_dethrone = candidate_uid is not None and candidate_uid != leader_before_uid and candidate_reward > threshold
+        if candidate_should_dethrone:
+            return winner or candidate
+        return leader_after
 
     def _load_competition_state(self) -> None:
         """Rebuild season competition history from saved round post_consensus artifacts."""
@@ -366,7 +493,7 @@ class Validator(
 
                 summary = post_consensus_json.get("summary")
                 if isinstance(summary, dict):
-                    leader_after = summary.get("leader_after_round")
+                    leader_after = self._coerce_loaded_leader_after_snapshot(post_consensus_json)
                     if isinstance(leader_after, dict):
                         try:
                             summary_loaded["current_winner_uid"] = int(leader_after.get("uid")) if leader_after.get("uid") is not None else None
@@ -507,75 +634,95 @@ class Validator(
         """
         if await self._wait_for_minimum_start_block():
             return
-
-        round_size_epochs = float(getattr(self.round_manager, "round_size_epochs", ROUND_SIZE_EPOCHS) or ROUND_SIZE_EPOCHS)
-        bt.logging.info(f"🚀 Starting round-based forward (epochs per round: {round_size_epochs:.1f})")
-        start_result: RoundStartResult = await self._start_round()
-
-        if not start_result.continue_forward:
-            bt.logging.info(f"Round start skipped ({start_result.reason}); waiting for next boundary")
-            await self._wait_until_specific_block(
-                target_block=self.round_manager.target_block,
-                target_description="round boundary block",
-            )
-            return
-
-        # 1) Handshake & agent discovery
-        await self._perform_handshake()
-
-        # Late-start guard: if handshake consumed too much time and the round is
-        # already at/near end, skip participation entirely for this round.
         try:
-            current_block_after_handshake = self.block
-            target_block = int(getattr(self.round_manager, "target_block", 0) or 0)
-            remaining_blocks = max(target_block - current_block_after_handshake, 0)
-            min_blocks_to_participate = int(
-                getattr(
-                    self.round_manager,
-                    "SKIP_ROUND_MIN_BLOCKS_AFTER_HANDSHAKE",
-                    10,
-                )
-                or 10
-            )
-            if target_block > 0 and remaining_blocks < min_blocks_to_participate:
-                bt.logging.warning(
-                    "Skipping round participation after handshake: "
-                    f"remaining_blocks={remaining_blocks} < min_required={min_blocks_to_participate} "
-                    f"(current_block={current_block_after_handshake}, target_block={target_block})"
-                )
-                self.round_manager.enter_phase(
-                    RoundPhase.COMPLETE,
-                    block=current_block_after_handshake,
-                    note="Round skipped (late start after handshake)",
-                    force=True,
-                )
+            round_size_epochs = float(getattr(self.round_manager, "round_size_epochs", ROUND_SIZE_EPOCHS) or ROUND_SIZE_EPOCHS)
+            bt.logging.info(f"🚀 Starting round-based forward (epochs per round: {round_size_epochs:.1f})")
+            start_result: RoundStartResult = await self._start_round()
+
+            if not start_result.continue_forward:
+                bt.logging.info(f"Round start skipped ({start_result.reason}); waiting for next boundary")
                 await self._wait_until_specific_block(
-                    target_block=target_block,
+                    target_block=self.round_manager.target_block,
                     target_description="round boundary block",
                 )
                 return
+
+            # 1) Handshake & agent discovery
+            await self._perform_handshake()
+
+            # Late-start guard: if handshake consumed too much time and the round is
+            # already at/near end, skip participation entirely for this round.
+            try:
+                current_block_after_handshake = self.block
+                target_block = int(getattr(self.round_manager, "target_block", 0) or 0)
+                remaining_blocks = max(target_block - current_block_after_handshake, 0)
+                min_blocks_to_participate = int(
+                    getattr(
+                        self.round_manager,
+                        "SKIP_ROUND_MIN_BLOCKS_AFTER_HANDSHAKE",
+                        10,
+                    )
+                    or 10
+                )
+                if target_block > 0 and remaining_blocks < min_blocks_to_participate:
+                    bt.logging.warning(
+                        "Skipping round participation after handshake: "
+                        f"remaining_blocks={remaining_blocks} < min_required={min_blocks_to_participate} "
+                        f"(current_block={current_block_after_handshake}, target_block={target_block})"
+                    )
+                    self.round_manager.enter_phase(
+                        RoundPhase.COMPLETE,
+                        block=current_block_after_handshake,
+                        note="Round skipped (late start after handshake)",
+                        force=True,
+                    )
+                    await self._wait_until_specific_block(
+                        target_block=target_block,
+                        target_description="round boundary block",
+                    )
+                    return
+            except Exception as exc:
+                bt.logging.warning(f"Late-start guard check failed (continuing): {exc}")
+
+            # Initialize IWAP round after handshake (we now know how many miners participate)
+            current_block = self.block
+            season_tasks = await self.round_manager.get_round_tasks(current_block, self.season_manager)
+            n_tasks = len(season_tasks)
+
+            # Build IWAP tasks before starting round
+            if season_tasks and self.current_round_id:
+                self.current_round_tasks = self._build_iwap_tasks(validator_round_id=self.current_round_id, tasks=season_tasks)
+
+            await self._iwap_start_round(current_block=current_block, n_tasks=n_tasks)
+            await self._try_upload_round_log_checkpoint(
+                reason="forward_round_started",
+                force=True,
+                min_interval_seconds=0.0,
+                phase="Validator",
+            )
+
+            # Register miners in IWAP (creates validator_round_miners records)
+            await self._iwap_register_miners()
+            await self._try_upload_round_log_checkpoint(
+                reason="forward_miners_registered",
+                force=False,
+                min_interval_seconds=0.0,
+                phase="Validator",
+            )
+
+            # 2) Evaluation phase
+            agents_evaluated = await self._run_evaluation_phase()
+
+            # 3) Settlement / weight update
+            await self._run_settlement_phase(agents_evaluated=agents_evaluated)
         except Exception as exc:
-            bt.logging.warning(f"Late-start guard check failed (continuing): {exc}")
-
-        # Initialize IWAP round after handshake (we now know how many miners participate)
-        current_block = self.block
-        season_tasks = await self.round_manager.get_round_tasks(current_block, self.season_manager)
-        n_tasks = len(season_tasks)
-
-        # Build IWAP tasks before starting round
-        if season_tasks and self.current_round_id:
-            self.current_round_tasks = self._build_iwap_tasks(validator_round_id=self.current_round_id, tasks=season_tasks)
-
-        await self._iwap_start_round(current_block=current_block, n_tasks=n_tasks)
-
-        # Register miners in IWAP (creates validator_round_miners records)
-        await self._iwap_register_miners()
-
-        # 2) Evaluation phase
-        agents_evaluated = await self._run_evaluation_phase()
-
-        # 3) Settlement / weight update
-        await self._run_settlement_phase(agents_evaluated=agents_evaluated)
+            await self._try_upload_round_log_checkpoint(
+                reason=f"forward_exception:{type(exc).__name__}",
+                force=True,
+                min_interval_seconds=0.0,
+                phase="Validator",
+            )
+            raise
 
 
 if __name__ == "__main__":

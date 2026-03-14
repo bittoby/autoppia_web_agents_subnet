@@ -380,8 +380,13 @@ class ValidatorRoundStartMixin:
 
         # Configure per-round log file (data/logs/season-<season>-round-<round>.log).
         round_id_for_log = self.current_round_id
-        with contextlib.suppress(Exception):
+        try:
             ColoredLogger.set_round_log_file(str(round_id_for_log))
+        except Exception as exc:
+            ColoredLogger.warning(
+                f"Failed to initialize round log file for {round_id_for_log}: {type(exc).__name__}: {exc}",
+                ColoredLogger.YELLOW,
+            )
 
         wait_info = self.round_manager.get_wait_info(current_block)
 

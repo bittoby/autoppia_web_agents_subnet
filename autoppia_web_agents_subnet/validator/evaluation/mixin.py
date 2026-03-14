@@ -358,6 +358,8 @@ class ValidatorEvaluationMixin:
                         await uploader(reason="evaluation_stop_fraction", force=True, min_interval_seconds=0.0)
                 except Exception:
                     pass
+                with contextlib.suppress(Exception):
+                    self._mark_all_zero_round_for_re_evaluation()
                 return agents_evaluated
 
             agent = self.agents_queue.get()
@@ -812,6 +814,8 @@ class ValidatorEvaluationMixin:
                 _finalize_agent(agent, score=float(avg_reward), zero_reason=zero_reason)
             agents_evaluated += 1
 
+        with contextlib.suppress(Exception):
+            self._mark_all_zero_round_for_re_evaluation()
         ColoredLogger.info("Evaluation phase completed", ColoredLogger.MAGENTA)
         return agents_evaluated
 

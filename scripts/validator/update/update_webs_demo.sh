@@ -30,4 +30,15 @@ fi
 
 echo "[INFO] Redeploying demo webs..."
 bash "$DEPLOY_DEMO_WRAPPER"
+
+echo "[INFO] Pruning dangling Docker images left by web builds..."
+docker image prune -f
+
+if [[ "${DOCKER_PRUNE_BUILD_CACHE:-true}" == "true" ]]; then
+  BUILDER_PRUNE_UNTIL="${DOCKER_BUILDER_PRUNE_UNTIL:-168h}"
+  BUILDER_PRUNE_KEEP_STORAGE="${DOCKER_BUILDER_PRUNE_KEEP_STORAGE:-20gb}"
+  echo "[INFO] Pruning old Docker build cache (until=${BUILDER_PRUNE_UNTIL}, keep-storage=${BUILDER_PRUNE_KEEP_STORAGE})..."
+  docker builder prune -f --filter "until=${BUILDER_PRUNE_UNTIL}" --keep-storage "${BUILDER_PRUNE_KEEP_STORAGE}" || true
+fi
+
 echo "[INFO] webs_demo update completed"

@@ -390,6 +390,7 @@ def dummy_validator(mock_validator_config):
     validator._finish_iwap_round = AsyncMock(return_value=True)
     validator._reset_iwap_round_state = Mock()
     validator._upload_round_log_snapshot = AsyncMock()
+    validator._try_upload_round_log_checkpoint = AsyncMock()
     validator._sync_runtime_config_while_waiting = AsyncMock()
     validator._state_summary_root = Mock(return_value="/tmp/test_state")
     validator.handshake_results = {}

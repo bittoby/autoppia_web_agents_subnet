@@ -335,7 +335,86 @@ def _persist_round_summary_file(
         ColoredLogger.warning(f"IWAP | Could not persist round artifacts for season={season_number} round={round_number}")
 
 
+def _pending_finish_dir(ctx) -> Path:
+    root_getter = getattr(ctx, "_state_summary_root", None)
+    base = root_getter() if callable(root_getter) else Path("data")
+    target = Path(base) / "pending_finish"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _finish_request_to_jsonable(finish_request: Any) -> dict[str, Any]:
+    if hasattr(finish_request, "to_payload"):
+        payload = finish_request.to_payload()
+        if isinstance(payload, dict):
+            return payload
+    if hasattr(finish_request, "model_dump"):
+        return finish_request.model_dump(mode="json")
+    if hasattr(finish_request, "dict"):
+        return finish_request.dict()
+    raise TypeError("finish_request is not serializable")
+
+
+class _PendingFinishRequest:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = dict(payload)
+        self.summary = self._payload.get("summary")
+
+    def to_payload(self) -> dict[str, Any]:
+        return dict(self._payload)
+
+
+def _persist_pending_finish_request(*, ctx, validator_round_id: str, finish_request: Any) -> None:
+    try:
+        payload = {
+            "validator_round_id": str(validator_round_id),
+            "finish_request": _finish_request_to_jsonable(finish_request),
+            "persisted_at": time.time(),
+        }
+        target = _pending_finish_dir(ctx) / f"{validator_round_id}.json"
+        target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        bt.logging.warning(f"IWAP | Could not persist pending finish payload for {validator_round_id}")
+
+
+async def _flush_pending_finish_requests(ctx) -> None:
+    if getattr(ctx, "_iwap_offline_mode", False):
+        return
+    pending_dir = _pending_finish_dir(ctx)
+    files = sorted(pending_dir.glob("*.json"))
+    if not files:
+        return
+
+    for pending_file in files:
+        try:
+            payload = json.loads(pending_file.read_text(encoding="utf-8"))
+            validator_round_id = str(payload.get("validator_round_id") or "").strip()
+            finish_request_payload = payload.get("finish_request")
+            if not validator_round_id or not isinstance(finish_request_payload, dict):
+                pending_file.unlink(missing_ok=True)
+                continue
+            finish_request = _PendingFinishRequest(finish_request_payload)
+            await ctx.iwap_client.finish_round(
+                validator_round_id=validator_round_id,
+                finish_request=finish_request,
+            )
+            pending_file.unlink(missing_ok=True)
+            log_iwap_phase("Phase 5", f"pending finish_round flushed for round_id={validator_round_id}", level="success", exc_info=False)
+        except Exception as exc:
+            if isinstance(exc, httpx.HTTPStatusError) and _is_main_authority_or_grace_error(exc):
+                log_iwap_phase(
+                    "Phase 5",
+                    f"pending finish_round still blocked for {pending_file.stem}; will retry later",
+                    level="warning",
+                    exc_info=False,
+                )
+                continue
+            bt.logging.warning(f"IWAP | pending finish replay failed for {pending_file.stem}: {type(exc).__name__}: {exc}")
+
+
 async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
+    with contextlib.suppress(Exception):
+        await _flush_pending_finish_requests(ctx)
     # Gate for downstream IWAP writes (start_agent_run/registration). Only set true once
     # round creation + set_tasks completed (or duplicate/idempotent equivalent).
     ctx._iwap_round_ready = False
@@ -821,7 +900,8 @@ async def finish_round_flow(
         season_for_round = 0
     if round_for_round is None:
         round_for_round = 0
-    # Upload full round log (append-only file: all logs from round start; never truncated on error)
+    # Upload the full round log first; if the gateway rejects it for size,
+    # fall back to a truncated tail snapshot so we still persist something useful.
     round_log_file: str | None = None
     round_log_url: str | None = None
     round_log_error: str | None = None
@@ -851,14 +931,26 @@ async def finish_round_flow(
                             validator_hotkey = getattr(validator_hotkey, "ss58_address", None)
                     except Exception:
                         pass
-                    round_log_url = await ctx.iwap_client.upload_round_log(
-                        validator_round_id=round_id,
-                        content=round_log_contents,
-                        season_number=season_for_round,
-                        round_number_in_season=round_for_round,
-                        validator_uid=validator_uid if isinstance(validator_uid, int) else None,
-                        validator_hotkey=validator_hotkey,
-                    )
+                    upload_variants = ColoredLogger.build_round_log_upload_variants(round_log_contents)
+                    for variant_label, variant_content in upload_variants:
+                        try:
+                            round_log_url = await ctx.iwap_client.upload_round_log(
+                                validator_round_id=round_id,
+                                content=variant_content,
+                                season_number=season_for_round,
+                                round_number_in_season=round_for_round,
+                                validator_uid=validator_uid if isinstance(validator_uid, int) else None,
+                                validator_hotkey=validator_hotkey,
+                            )
+                            if round_log_url is not None:
+                                break
+                        except httpx.HTTPStatusError as exc:
+                            status_code = exc.response.status_code if exc.response is not None else None
+                            has_smaller_variant = variant_label != upload_variants[-1][0]
+                            if status_code == 413 and has_smaller_variant:
+                                bt.logging.warning(f"Round log upload hit 413 for {round_id} ({variant_label}); retrying with a smaller tail payload")
+                                continue
+                            raise
                     if round_log_url is None:
                         round_log_error = "upload rejected: no url returned"
                 else:
@@ -1380,6 +1472,45 @@ async def finish_round_flow(
                 **({"weight": float(best_run.get("weight"))} if best_run.get("weight") is not None else {}),
             }
 
+        def _normalize_leadership_summary(summary: dict[str, Any]) -> dict[str, Any]:
+            normalized = dict(summary)
+            leader_before = normalized.get("leader_before_round")
+            candidate = normalized.get("candidate_this_round")
+            leader_after = normalized.get("leader_after_round")
+            required_improvement_pct = float(normalized.get("percentage_to_dethrone", 0.05) or 0.05)
+
+            if not isinstance(leader_before, dict):
+                leader_before = None
+            if not isinstance(candidate, dict):
+                candidate = None
+            if not isinstance(leader_after, dict):
+                leader_after = None
+
+            # In round 1 there is no reigning leader: if we still have a candidate, that candidate is
+            # the only valid leader-after snapshot.
+            if leader_before is None and candidate is not None:
+                normalized["leader_after_round"] = dict(candidate)
+                normalized["dethroned"] = False
+                return normalized
+
+            if leader_before is None:
+                normalized["dethroned"] = False
+                return normalized
+
+            if candidate is None:
+                normalized["leader_after_round"] = dict(leader_before)
+                normalized["dethroned"] = False
+                return normalized
+
+            leader_before_reward = float(leader_before.get("reward", 0.0) or 0.0)
+            candidate_reward = float(candidate.get("reward", 0.0) or 0.0)
+            threshold = leader_before_reward * (1.0 + required_improvement_pct)
+            dethroned = bool(candidate_reward > threshold)
+
+            normalized["dethroned"] = dethroned
+            normalized["leader_after_round"] = dict(candidate if dethroned else leader_before)
+            return normalized
+
         if isinstance(post_consensus_json_summary, dict):
             post_consensus_json_summary = {
                 **post_consensus_json_summary,
@@ -1387,6 +1518,7 @@ async def finish_round_flow(
                 "candidate_this_round": _canonical_summary_snapshot(post_consensus_json_summary.get("candidate_this_round")),
                 "leader_after_round": _canonical_summary_snapshot(post_consensus_json_summary.get("leader_after_round")),
             }
+            post_consensus_json_summary = _normalize_leadership_summary(post_consensus_json_summary)
 
         post_consensus_evaluation = {
             "season": int(season_number_for_summary or 0),
@@ -1547,19 +1679,22 @@ async def finish_round_flow(
 
             if retried_success:
                 success = True
-                ctx._reset_iwap_round_state()
                 return success
 
             # If retries exhausted and still authority/grace blocked, keep local completion and continue.
             if isinstance(last_exc, httpx.HTTPStatusError) and _is_main_authority_or_grace_error(last_exc):
+                _persist_pending_finish_request(
+                    ctx=ctx,
+                    validator_round_id=round_id,
+                    finish_request=finish_request,
+                )
                 log_iwap_phase(
                     "Phase 5",
-                    (f"finish_round still blocked after retries for round_id={round_id}; continuing without IWAP close for this validator round"),
+                    (f"finish_round still blocked after retries for round_id={round_id}; persisted pending finish payload and continuing without IWAP close for this validator round"),
                     level="warning",
                     exc_info=False,
                 )
                 success = False
-                ctx._reset_iwap_round_state()
                 return success
 
             # Replace original exception so generic handler logs the real non-authority failure.
@@ -1590,9 +1725,14 @@ async def finish_round_flow(
                 level="success",
             )
         except Exception as fallback_exc:
+            _persist_pending_finish_request(
+                ctx=ctx,
+                validator_round_id=round_id,
+                finish_request=finish_request,
+            )
             log_iwap_phase(
                 "Phase 5",
-                f"finish_round fallback also failed for round_id={round_id}: {type(fallback_exc).__name__}: {fallback_exc}",
+                f"finish_round fallback also failed for round_id={round_id}: {type(fallback_exc).__name__}: {fallback_exc}. Pending finish payload persisted for retry.",
                 level="error",
             )
     else:
