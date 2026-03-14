@@ -482,7 +482,7 @@ def test_current_metadata_does_not_hide_stale_major_artifacts_on_disk(tmp_path):
     assert remaining_entries == ["evaluation_context.json"]
     persisted_context = json.loads((tmp_path / "evaluation_context.json").read_text(encoding="utf-8"))
     assert persisted_context["minimum_validator_version"] == "19.0.0"
-    assert persisted_context["minimum_start_block"] == 7740451
+    assert persisted_context["minimum_start_block"] == int(validator_config.MINIMUM_START_BLOCK)
 
 
 @pytest.mark.integration
