@@ -20,6 +20,9 @@ def _bind_version_helpers(validator):
     validator._artifact_context_payload = Validator._artifact_context_payload.__get__(validator, type(validator))
     validator._load_saved_artifact_context = Validator._load_saved_artifact_context.__get__(validator, type(validator))
     validator._persist_artifact_context = Validator._persist_artifact_context.__get__(validator, type(validator))
+    validator._normalize_artifact_context_mapping = Validator._normalize_artifact_context_mapping.__get__(validator, type(validator))
+    validator._iter_artifact_context_candidates = Validator._iter_artifact_context_candidates.__get__(validator, type(validator))
+    validator._infer_saved_artifact_context_from_existing_artifacts = Validator._infer_saved_artifact_context_from_existing_artifacts.__get__(validator, type(validator))
     validator._clear_round_artifacts_preserving_tasks = Validator._clear_round_artifacts_preserving_tasks.__get__(validator, type(validator))
     validator._clear_all_artifacts_preserving_tasks = Validator._clear_all_artifacts_preserving_tasks.__get__(validator, type(validator))
     validator._clear_all_artifacts_including_tasks = Validator._clear_all_artifacts_including_tasks.__get__(validator, type(validator))
@@ -86,6 +89,44 @@ def _seed_season_artifacts(tmp_path: Path):
     (legacy_tasks_dir / "season_1_tasks.json").write_text('{"tasks": [1, 2, 3]}', encoding="utf-8")
     (round_dir / "post_consensus.json").write_text('{"summary": "x"}', encoding="utf-8")
     (round_dir / "ipfs_uploaded.json").write_text('{"payload": "x"}', encoding="utf-8")
+
+
+def _seed_season_artifacts_with_context(tmp_path: Path, *, version: str, minimum_start_block: int):
+    season_dir = tmp_path / "season_1"
+    round_dir = season_dir / "round_1"
+    round_dir.mkdir(parents=True, exist_ok=True)
+    (season_dir / "tasks.json").write_text('{"tasks": [1, 2, 3]}', encoding="utf-8")
+    legacy_tasks_dir = tmp_path / "season_tasks"
+    legacy_tasks_dir.mkdir(parents=True, exist_ok=True)
+    (legacy_tasks_dir / "season_1_tasks.json").write_text('{"tasks": [1, 2, 3]}', encoding="utf-8")
+    evaluation_context = {
+        "blocks_per_epoch": 360,
+        "minimum_start_block": minimum_start_block,
+        "minimum_validator_version": version,
+        "round_size_epochs": 5.0,
+        "season_size_epochs": 100.0,
+    }
+    context_json = json.dumps(evaluation_context, sort_keys=True, separators=(",", ":"))
+    evaluation_context["evaluation_context_hash"] = f"sha256:{__import__('hashlib').sha256(context_json.encode('utf-8')).hexdigest()}"
+    payload = {
+        "payload": {
+            "miners": [
+                {
+                    "best_run": {
+                        "reward": 0.42,
+                        "score": 0.42,
+                        "time": 22.0,
+                        "cost": 0.02,
+                        "tasks_received": 100,
+                        "tasks_success": 42,
+                        "evaluation_context": evaluation_context,
+                    }
+                }
+            ]
+        }
+    }
+    (round_dir / "ipfs_uploaded.json").write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    (round_dir / "post_consensus.json").write_text('{"summary": "x"}', encoding="utf-8")
 
 
 def _seed_rehydratable_artifacts(tmp_path: Path):
@@ -229,6 +270,52 @@ def test_version_bump_major_prevents_any_stale_state_from_rehydrating_after_rest
 
 
 @pytest.mark.integration
+def test_version_bump_major_without_saved_metadata_still_clears_all_artifacts_from_ipfs_context(tmp_path):
+    """
+    Scenario:
+    The validator state root has old season artifacts but no `evaluation_context.json`.
+    The only remaining version/context signal lives inside historical IPFS payload artifacts.
+
+    What this test proves:
+    - a major bump still clears the whole validator state root
+    - stale season tasks are not preserved accidentally just because the metadata file is missing
+    """
+    validator = _make_validator(tmp_path, version="18.0.0")
+    _seed_season_artifacts_with_context(tmp_path, version="17.0.0", minimum_start_block=7740314)
+
+    validator._invalidate_round_artifacts_if_context_changed()
+
+    remaining_entries = sorted(path.name for path in tmp_path.iterdir())
+    assert remaining_entries == ["evaluation_context.json"]
+    persisted_context = json.loads((tmp_path / "evaluation_context.json").read_text(encoding="utf-8"))
+    assert persisted_context["minimum_validator_version"] == "18.0.0"
+
+
+@pytest.mark.integration
+def test_version_bump_minor_without_saved_metadata_preserves_tasks_but_clears_round_artifacts_from_ipfs_context(tmp_path):
+    """
+    Scenario:
+    The validator state root has old season artifacts but no `evaluation_context.json`.
+    The prior version/context can only be recovered from the saved IPFS payload.
+
+    What this test proves:
+    - a non-major bump still applies the "preserve tasks, clear the rest" policy
+    - missing metadata does not block cleanup anymore
+    """
+    validator = _make_validator(tmp_path, version="17.1.0")
+    _seed_season_artifacts_with_context(tmp_path, version="17.0.0", minimum_start_block=7740314)
+
+    validator._invalidate_round_artifacts_if_context_changed()
+
+    assert (tmp_path / "season_1").exists()
+    assert (tmp_path / "season_1" / "tasks.json").exists()
+    assert (tmp_path / "season_tasks" / "season_1_tasks.json").exists()
+    assert not (tmp_path / "season_1" / "round_1").exists()
+    persisted_context = json.loads((tmp_path / "evaluation_context.json").read_text(encoding="utf-8"))
+    assert persisted_context["minimum_validator_version"] == "17.1.0"
+
+
+@pytest.mark.integration
 def test_version_bump_minor_currently_also_clears_all_artifacts_and_forces_reevaluation(tmp_path):
     """
     Scenario:
@@ -338,6 +425,39 @@ def test_same_version_and_same_context_keeps_artifacts_and_allows_reuse(tmp_path
     )
     assert reusable is not None
     assert reusable["agent_run_id"] == "agent-run-48-old"
+
+
+@pytest.mark.integration
+def test_missing_saved_metadata_but_same_inferred_context_keeps_artifacts_and_reuse(tmp_path):
+    """
+    Scenario:
+    The validator lost `evaluation_context.json`, but the existing IPFS payload on disk
+    still matches the current runtime version and timing config.
+
+    What this test proves:
+    - the validator does not destroy reusable state just because the metadata file is missing
+    - inferred context matching the current context keeps round artifacts and reuse intact
+    """
+    validator = _make_validator(tmp_path, version=SUBNET_IWA_VERSION)
+    _seed_season_artifacts_with_context(
+        tmp_path,
+        version=SUBNET_IWA_VERSION,
+        minimum_start_block=int(validator_config.MINIMUM_START_BLOCK),
+    )
+    validator._evaluated_commits_by_miner[48]["https://github.com/example/miner|deadbeef"]["evaluation_context"] = validator._evaluation_context_payload()
+
+    validator._invalidate_round_artifacts_if_context_changed()
+
+    assert (tmp_path / "season_1").exists()
+    assert (tmp_path / "season_1" / "tasks.json").exists()
+    assert (tmp_path / "season_1" / "round_1").exists()
+    reusable = validator._find_reusable_commit_stats(
+        uid=48,
+        github_url="https://github.com/example/miner/commit/deadbeef",
+        normalized_repo="https://github.com/example/miner",
+        commit_sha="deadbeef",
+    )
+    assert reusable is not None
 
 
 @pytest.mark.integration

@@ -171,6 +171,99 @@ class Validator(
         with target.open("w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, sort_keys=True)
 
+    def _normalize_artifact_context_mapping(self, payload: object) -> dict[str, object] | None:
+        if not isinstance(payload, dict):
+            return None
+        try:
+            round_size_epochs = float(payload.get("round_size_epochs"))
+            season_size_epochs = float(payload.get("season_size_epochs"))
+            blocks_per_epoch = int(payload.get("blocks_per_epoch"))
+            minimum_start_block = int(payload.get("minimum_start_block"))
+        except Exception:
+            return None
+        minimum_validator_version = str(payload.get("minimum_validator_version", "") or "").strip()
+        context_without_hash = {
+            "round_size_epochs": round_size_epochs,
+            "season_size_epochs": season_size_epochs,
+            "blocks_per_epoch": blocks_per_epoch,
+            "minimum_start_block": minimum_start_block,
+            "minimum_validator_version": minimum_validator_version,
+        }
+        context_json = json.dumps(context_without_hash, sort_keys=True, separators=(",", ":"))
+        saved_hash = str(payload.get("evaluation_context_hash", "") or "").strip()
+        return {
+            **context_without_hash,
+            "evaluation_context_hash": saved_hash or f"sha256:{hashlib.sha256(context_json.encode('utf-8')).hexdigest()}",
+        }
+
+    def _iter_artifact_context_candidates(self, payload: object):
+        stack = [payload]
+        visited: set[int] = set()
+        while stack:
+            node = stack.pop()
+            node_id = id(node)
+            if node_id in visited:
+                continue
+            visited.add(node_id)
+
+            normalized = self._normalize_artifact_context_mapping(node)
+            if normalized is not None:
+                yield normalized
+
+            if isinstance(node, dict):
+                evaluation_context = node.get("evaluation_context")
+                normalized_eval = self._normalize_artifact_context_mapping(evaluation_context)
+                if normalized_eval is not None:
+                    yield normalized_eval
+
+                for key in (
+                    "payload",
+                    "payloads",
+                    "miners",
+                    "best_run",
+                    "current_run",
+                    "best_run_consensus",
+                    "current_run_consensus",
+                    "local_evaluation",
+                ):
+                    child = node.get(key)
+                    if child is not None:
+                        stack.append(child)
+            elif isinstance(node, list):
+                stack.extend(node)
+
+    def _infer_saved_artifact_context_from_existing_artifacts(self) -> dict[str, object] | None:
+        base = self._state_summary_root()
+        if not base.exists():
+            return None
+
+        candidate_files: list[Path] = []
+        for season_dir in sorted(base.glob("season_*")):
+            if not season_dir.is_dir():
+                continue
+            for round_dir in sorted(season_dir.glob("round_*")):
+                if not round_dir.is_dir():
+                    continue
+                for filename in ("ipfs_uploaded.json", "ipfs_downloaded.json", "post_consensus.json"):
+                    candidate = round_dir / filename
+                    if candidate.exists() and candidate.is_file():
+                        candidate_files.append(candidate)
+
+        for candidate in candidate_files:
+            try:
+                with candidate.open("r", encoding="utf-8") as f:
+                    payload = json.load(f)
+            except Exception:
+                continue
+            for normalized in self._iter_artifact_context_candidates(payload):
+                bt.logging.warning(
+                    f"Recovered missing evaluation_context.json from artifact {candidate.name}; "
+                    f"saved_version={normalized.get('minimum_validator_version') or '<missing>'}, "
+                    f"saved_start_block={normalized.get('minimum_start_block')}"
+                )
+                return normalized
+        return None
+
     def _clear_round_artifacts_preserving_tasks(self) -> None:
         base = self._state_summary_root()
         removed_round_dirs = 0
@@ -267,8 +360,10 @@ class Validator(
         saved_context = self._load_saved_artifact_context()
         current_context = self._artifact_context_payload()
         if not isinstance(saved_context, dict):
-            self._persist_artifact_context()
-            return
+            saved_context = self._infer_saved_artifact_context_from_existing_artifacts()
+            if not isinstance(saved_context, dict):
+                self._persist_artifact_context()
+                return
         saved_hash = str(saved_context.get("evaluation_context_hash", "") or "")
         current_hash = str(current_context.get("evaluation_context_hash", "") or "")
         if saved_hash and current_hash and saved_hash != current_hash:
