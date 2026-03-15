@@ -20,6 +20,28 @@ if [ ! -d "$WEBS_DEMO_PATH/.git" ]; then
   exit 1
 fi
 
+cleanup_stale_demo_projects() {
+  echo "[INFO] Removing stale legacy demo containers before redeploy..."
+
+  docker ps -a --format '{{.ID}}\t{{.Label "com.docker.compose.project"}}' | while IFS=$'\t' read -r id proj; do
+    if [[ "$proj" =~ ^web_[0-9]+_ ]]; then
+      docker rm -f "$id" >/dev/null 2>&1 || true
+    fi
+  done
+
+  docker volume ls --format '{{.Name}}\t{{.Label "com.docker.compose.project"}}' | while IFS=$'\t' read -r vol proj; do
+    if [[ "$proj" =~ ^web_[0-9]+_ ]]; then
+      docker volume rm "$vol" >/dev/null 2>&1 || true
+    fi
+  done
+
+  docker network ls --format '{{.ID}}\t{{.Label "com.docker.compose.project"}}' | while IFS=$'\t' read -r network_id proj; do
+    if [[ "$proj" =~ ^web_[0-9]+_ ]]; then
+      docker network rm "$network_id" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
 echo "[INFO] Updating autoppia_webs_demo at $WEBS_DEMO_PATH..."
 (cd "$WEBS_DEMO_PATH" && git pull origin main)
 
@@ -27,6 +49,8 @@ if [ ! -x "$DEPLOY_DEMO_WRAPPER" ]; then
   echo "[ERROR] Demo deploy wrapper not found or not executable: $DEPLOY_DEMO_WRAPPER" >&2
   exit 1
 fi
+
+cleanup_stale_demo_projects
 
 echo "[INFO] Redeploying demo webs..."
 bash "$DEPLOY_DEMO_WRAPPER"
