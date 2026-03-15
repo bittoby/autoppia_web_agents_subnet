@@ -29,7 +29,7 @@ SEASON_SIZE_EPOCHS = 100
 # 8 hours with 360 blocks/epoch and ~12s/block => 2400 blocks => 6.666667 epochs | 3 rounds/day, 15 rounds/season, 5 days/season
 ROUND_SIZE_EPOCHS = 5
 # IMPORTANT: season/round math uses MINIMUM_START_BLOCK always.
-MINIMUM_START_BLOCK = 7740561
+MINIMUM_START_BLOCK = 7754380
 STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION = _env_float("STOP_TASK_EVALUATION_AND_UPLOAD_IPFS_AT_ROUND_FRACTION", 0.94, test_default=0.94)
 FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION = _env_float("FETCH_IPFS_VALIDATOR_PAYLOADS_CALCULATE_WEIGHT_AT_ROUND_FRACTION", 0.97, test_default=0.97)
 SKIP_ROUND_IF_STARTED_AFTER_FRACTION = _env_float("SKIP_ROUND_IF_STARTED_AFTER_FRACTION", 0.30, test_default=0.30)
@@ -95,6 +95,8 @@ IPFS_GATEWAYS = [gw.strip() for gw in (_env_str("IPFS_GATEWAYS", "https://ipfs.i
 # - FINISH_ROUND_RETRY_SECONDS
 FINISH_ROUND_MAX_RETRIES = _env_int("FINISH_ROUND_MAX_RETRIES", 3, test_default=4)
 FINISH_ROUND_RETRY_SECONDS = _env_int("FINISH_ROUND_RETRY_SECONDS", 180, test_default=30)
+START_ROUND_MAX_RETRIES = _env_int("START_ROUND_MAX_RETRIES", 3, test_default=4)
+START_ROUND_RETRY_SECONDS = _env_int("START_ROUND_RETRY_SECONDS", 15, test_default=5)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

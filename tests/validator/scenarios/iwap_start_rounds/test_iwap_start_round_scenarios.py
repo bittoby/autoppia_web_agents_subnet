@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from httpx import HTTPStatusError, Request, Response
@@ -107,7 +107,11 @@ async def test_start_round_main_authority_guard_enables_shadow_mode_without_offl
         )
     )
 
-    await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+    with (
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_MAX_RETRIES", 0),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_RETRY_SECONDS", 1),
+    ):
+        await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
 
     assert ctx._iwap_offline_mode is False
     assert ctx._iwap_shadow_mode is True
@@ -148,7 +152,7 @@ async def test_start_round_round_number_mismatch_forces_offline_mode(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_start_round_window_not_active_forces_offline_mode(tmp_path):
+async def test_start_round_window_not_active_keeps_validator_online_and_not_ready(tmp_path):
     ctx = _make_start_ctx(tmp_path, round_number=7)
     ctx.iwap_client.start_round = AsyncMock(
         side_effect=_http_error(
@@ -164,11 +168,46 @@ async def test_start_round_window_not_active_forces_offline_mode(tmp_path):
         )
     )
 
-    await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+    with (
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_MAX_RETRIES", 0),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_RETRY_SECONDS", 1),
+    ):
+        await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
 
-    assert ctx._iwap_offline_mode is True
+    assert ctx._iwap_offline_mode is False
+    assert ctx._iwap_shadow_mode is False
     assert ctx._iwap_round_ready is False
     ctx.iwap_client.set_tasks.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_start_round_window_not_active_retries_until_main_window_is_open(tmp_path):
+    ctx = _make_start_ctx(tmp_path, round_number=7)
+    not_ready_error = _http_error(
+        409,
+        {
+            "detail": {
+                "error": "round window not active",
+                "currentBlock": 7751358,
+                "startBlock": 7751361,
+                "endBlock": 7753161,
+            }
+        },
+    )
+    ctx.iwap_client.start_round = AsyncMock(side_effect=[not_ready_error, {"validator_round_id": ctx.current_round_id}])
+
+    with (
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_MAX_RETRIES", 2),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_RETRY_SECONDS", 1),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.asyncio.sleep", new=AsyncMock()),
+    ):
+        await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+
+    assert ctx._iwap_offline_mode is False
+    assert ctx._iwap_round_ready is True
+    assert ctx.iwap_client.start_round.await_count == 2
+    ctx.iwap_client.set_tasks.assert_awaited_once()
 
 
 @pytest.mark.integration
@@ -206,6 +245,126 @@ async def test_start_round_set_tasks_duplicate_keeps_round_ready(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_start_round_generic_http_failure_forces_offline_mode(tmp_path):
+    ctx = _make_start_ctx(tmp_path, round_number=5)
+    ctx.iwap_client.start_round = AsyncMock(side_effect=_http_error(500, "backend exploded"))
+
+    await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+
+    assert ctx._iwap_offline_mode is True
+    assert ctx._iwap_shadow_mode is False
+    assert ctx._iwap_round_ready is False
+    ctx.iwap_client.set_tasks.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_start_round_authority_guard_then_shadow_attach_response_marks_round_ready(tmp_path):
+    ctx = _make_start_ctx(tmp_path, round_number=5)
+    authority_error = _http_error(
+        409,
+        "Only main validator can open a new season/round before fallback grace elapses (current_block=7747762, planned_start_block=7747761, grace_blocks=25)",
+    )
+    ctx.iwap_client.start_round = AsyncMock(
+        side_effect=[
+            authority_error,
+            {
+                "validator_round_id": "validator_round_1_5_shadow_attach",
+                "shadow_mode": True,
+                "attach_mode": "attached_to_main_round",
+                "canonical_round_id": 501,
+            },
+        ]
+    )
+
+    with (
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_MAX_RETRIES", 2),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_RETRY_SECONDS", 1),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.asyncio.sleep", new=AsyncMock()),
+    ):
+        await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+
+    assert ctx._iwap_offline_mode is False
+    assert ctx._iwap_shadow_mode is True
+    assert ctx._iwap_round_ready is True
+    assert ctx.current_round_id == "validator_round_1_5_shadow_attach"
+    assert ctx.iwap_client.start_round.await_count == 2
+    ctx.iwap_client.set_tasks.assert_awaited_once()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_start_round_authority_guard_then_duplicate_retry_continues_idempotently(tmp_path):
+    ctx = _make_start_ctx(tmp_path, round_number=5)
+    authority_error = _http_error(
+        409,
+        "Only main validator can open a new season/round before fallback grace elapses (current_block=7747762, planned_start_block=7747761, grace_blocks=25)",
+    )
+    duplicate_error = _http_error(409, "validator round already exists")
+    ctx.iwap_client.start_round = AsyncMock(side_effect=[authority_error, duplicate_error])
+
+    with (
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_MAX_RETRIES", 2),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_RETRY_SECONDS", 1),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.asyncio.sleep", new=AsyncMock()),
+    ):
+        await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+
+    assert ctx._iwap_offline_mode is False
+    assert ctx._iwap_shadow_mode is False
+    assert ctx._iwap_round_ready is True
+    assert ctx.iwap_client.start_round.await_count == 2
+    ctx.iwap_client.set_tasks.assert_awaited_once()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_start_round_window_not_active_then_nonrecoverable_error_forces_offline_mode(tmp_path):
+    ctx = _make_start_ctx(tmp_path, round_number=7)
+    not_ready_error = _http_error(
+        409,
+        {
+            "detail": {
+                "error": "round window not active",
+                "currentBlock": 7751359,
+                "startBlock": 7751361,
+                "endBlock": 7753161,
+            }
+        },
+    )
+    generic_error = _http_error(500, "backend exploded")
+    ctx.iwap_client.start_round = AsyncMock(side_effect=[not_ready_error, generic_error])
+
+    with (
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_MAX_RETRIES", 2),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_RETRY_SECONDS", 1),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.asyncio.sleep", new=AsyncMock()),
+    ):
+        await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+
+    assert ctx._iwap_offline_mode is True
+    assert ctx._iwap_round_ready is False
+    assert ctx.iwap_client.start_round.await_count == 2
+    ctx.iwap_client.set_tasks.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_start_round_set_tasks_generic_failure_keeps_validator_online_but_not_ready(tmp_path):
+    ctx = _make_start_ctx(tmp_path, round_number=5)
+    ctx.iwap_client.set_tasks = AsyncMock(side_effect=_http_error(500, "set_tasks failed"))
+
+    await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+
+    assert ctx._iwap_offline_mode is False
+    assert ctx._iwap_shadow_mode is False
+    assert ctx._iwap_round_ready is False
+    ctx.iwap_client.start_round.assert_awaited_once()
+    ctx.iwap_client.set_tasks.assert_awaited_once()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_start_round_backup_can_retry_after_main_opens_round(tmp_path):
     ctx = _make_start_ctx(tmp_path, round_number=5)
     ctx.uid = 55
@@ -216,14 +375,12 @@ async def test_start_round_backup_can_retry_after_main_opens_round(tmp_path):
     )
     ctx.iwap_client.start_round = AsyncMock(side_effect=[authority_error, {"validator_round_id": ctx.current_round_id}])
 
-    await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
-    assert ctx._iwap_offline_mode is False
-    assert ctx._iwap_shadow_mode is True
-    assert ctx._iwap_round_ready is False
-    ctx.iwap_client.set_tasks.assert_not_called()
-
-    ctx._iwap_shadow_mode = False
-    await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+    with (
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_MAX_RETRIES", 2),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_RETRY_SECONDS", 1),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.asyncio.sleep", new=AsyncMock()),
+    ):
+        await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
 
     assert ctx._iwap_offline_mode is False
     assert ctx._iwap_round_ready is True
@@ -259,10 +416,15 @@ async def test_start_round_backup_far_before_main_stays_not_ready_across_retries
     )
     ctx.iwap_client.start_round = AsyncMock(side_effect=[authority_error, authority_error, authority_error])
 
-    for _ in range(3):
-        await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
+    with (
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_MAX_RETRIES", 0),
+        patch("autoppia_web_agents_subnet.platform.utils.round_flow.validator_config.START_ROUND_RETRY_SECONDS", 1),
+    ):
+        for _ in range(3):
+            await start_round_flow(ctx, current_block=ctx.get_current_block(), n_tasks=100)
 
     assert ctx._iwap_offline_mode is False
+    assert ctx._iwap_shadow_mode is True
     assert ctx._iwap_round_ready is False
     assert ctx.iwap_client.start_round.await_count == 3
     ctx.iwap_client.set_tasks.assert_not_called()

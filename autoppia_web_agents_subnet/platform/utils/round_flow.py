@@ -211,6 +211,57 @@ def _get_finish_retry_policy() -> tuple[int, int]:
     return max_retries, retry_interval_sec
 
 
+def _get_start_retry_policy() -> tuple[int, int]:
+    """
+    Return (max_retries, retry_interval_sec) for recoverable start_round retries.
+    Config keys:
+      - validator_config.START_ROUND_MAX_RETRIES
+      - validator_config.START_ROUND_RETRY_SECONDS
+    """
+    try:
+        max_retries = int(getattr(validator_config, "START_ROUND_MAX_RETRIES", 3))
+    except Exception:
+        max_retries = 3
+    try:
+        retry_interval_sec = int(getattr(validator_config, "START_ROUND_RETRY_SECONDS", 15))
+    except Exception:
+        retry_interval_sec = 15
+
+    max_retries = max(0, max_retries)
+    retry_interval_sec = max(1, retry_interval_sec)
+    return max_retries, retry_interval_sec
+
+
+def _parse_round_window_not_active(exc: httpx.HTTPStatusError) -> tuple[int | None, int | None, int | None] | None:
+    response = exc.response
+    if response is None or response.status_code not in (400, 409):
+        return None
+    detail: Any = None
+    try:
+        detail = response.json()
+    except Exception:
+        try:
+            detail = response.text
+        except Exception:
+            detail = None
+    if isinstance(detail, dict) and "detail" in detail:
+        detail = detail["detail"]
+    if not isinstance(detail, dict) or detail.get("error") != "round window not active":
+        return None
+
+    def _coerce_int(value: Any) -> int | None:
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    return (
+        _coerce_int(detail.get("currentBlock")),
+        _coerce_int(detail.get("startBlock")),
+        _coerce_int(detail.get("endBlock")),
+    )
+
+
 def _extract_round_numbers_from_round_id(round_id: str | None) -> tuple[int | None, int | None]:
     if not isinstance(round_id, str) or not round_id:
         return None, None
@@ -647,6 +698,23 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
         metadata=round_metadata,
     )
 
+    def _apply_start_round_response(resp: Any) -> tuple[bool, bool]:
+        vrid = _extract_validator_round_id(resp)
+        if vrid != ctx.current_round_id:
+            ctx.current_round_id = vrid
+        response_shadow_mode = bool(resp.get("shadow_mode")) if isinstance(resp, dict) else False
+        if response_shadow_mode:
+            ctx._iwap_shadow_mode = True
+            log_iwap_phase(
+                "Phase 1",
+                (f"start_round accepted in SHADOW mode for round_id={ctx.current_round_id}; continuing idempotent IWAP writes with non-authoritative close semantics"),
+                level="warning",
+            )
+        return True, response_shadow_mode
+
+    def _is_recoverable_start_error(exc: httpx.HTTPStatusError) -> bool:
+        return _is_main_authority_or_grace_error(exc) or _parse_round_window_not_active(exc) is not None
+
     start_round_ok = False
     shadow_mode = False
     try:
@@ -655,29 +723,9 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
             validator_round=validator_round,
             validator_snapshot=validator_snapshot,
         )
-        vrid = _extract_validator_round_id(resp)
-        if vrid != ctx.current_round_id:
-            ctx.current_round_id = vrid
-        shadow_mode = bool(resp.get("shadow_mode")) if isinstance(resp, dict) else False
-        if shadow_mode:
-            ctx._iwap_shadow_mode = True
-            log_iwap_phase(
-                "Phase 1",
-                (f"start_round accepted in SHADOW mode for round_id={ctx.current_round_id}; continuing idempotent IWAP writes with non-authoritative close semantics"),
-                level="warning",
-            )
-        start_round_ok = True
+        start_round_ok, shadow_mode = _apply_start_round_response(resp)
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code if exc.response is not None else None
-        if _is_main_authority_or_grace_error(exc):
-            log_iwap_phase(
-                "Phase 1",
-                (f"start_round returned {status} due to main-validator authority/grace guard; enabling SHADOW mode and continuing on-chain"),
-                level="warning",
-                exc_info=False,
-            )
-            ctx._iwap_shadow_mode = True
-            return
         if _is_duplicate_like_error(exc):
             detail = _extract_error_detail(exc).lower()
             season_conflict = "cannot start season" in detail and "still active" in detail
@@ -703,6 +751,118 @@ async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
                 )
                 ctx._iwap_offline_mode = True
                 return
+            if _is_recoverable_start_error(exc):
+                max_retries, retry_interval_sec = _get_start_retry_policy()
+                last_exc: Exception = exc
+                initial_window = _parse_round_window_not_active(exc)
+                if initial_window is not None:
+                    current_block_seen, start_block_seen, end_block_seen = initial_window
+                    log_iwap_phase(
+                        "Phase 1",
+                        (
+                            f"start_round returned {status} because the round window is not active "
+                            f"(current_block={current_block_seen}, start_block={start_block_seen}, end_block={end_block_seen}); "
+                            f"retrying up to {max_retries} time(s) every {retry_interval_sec}s before degrading to local-only mode"
+                        ),
+                        level="warning",
+                        exc_info=False,
+                    )
+                else:
+                    log_iwap_phase(
+                        "Phase 1",
+                        (
+                            f"start_round returned {status} due to main-validator authority/grace guard; "
+                            f"retrying up to {max_retries} time(s) every {retry_interval_sec}s before degrading to shadow/local-only mode"
+                        ),
+                        level="warning",
+                        exc_info=False,
+                    )
+
+                retried_success = False
+                for attempt in range(1, max_retries + 1):
+                    log_iwap_phase(
+                        "Phase 1",
+                        f"start_round retry {attempt}/{max_retries} for round_id={ctx.current_round_id} in {retry_interval_sec}s",
+                        level="warning",
+                        exc_info=False,
+                    )
+                    await asyncio.sleep(retry_interval_sec)
+                    try:
+                        retry_resp = await ctx.iwap_client.start_round(
+                            validator_identity=validator_identity,
+                            validator_round=validator_round,
+                            validator_snapshot=validator_snapshot,
+                        )
+                    except httpx.HTTPStatusError as retry_exc:
+                        if _is_duplicate_like_error(retry_exc):
+                            start_round_ok = True
+                            retried_success = True
+                            break
+                        mismatch = _parse_round_mismatch(retry_exc)
+                        if mismatch is not None:
+                            expected, got = mismatch
+                            log_iwap_phase(
+                                "Phase 1",
+                                (f"start_round retry rejected due to round_number mismatch (expected={expected}, got={got}); continuing without IWAP sync"),
+                                level="error",
+                            )
+                            ctx._iwap_offline_mode = True
+                            return
+                        last_exc = retry_exc
+                        if _is_recoverable_start_error(retry_exc):
+                            continue
+                        exc = retry_exc
+                        break
+                    except Exception as retry_exc:
+                        last_exc = retry_exc
+                        exc = retry_exc
+                        break
+                    else:
+                        start_round_ok, shadow_mode = _apply_start_round_response(retry_resp)
+                        retried_success = True
+                        log_iwap_phase(
+                            "Phase 1",
+                            f"start_round succeeded on retry for round_id={ctx.current_round_id}",
+                            level="success",
+                        )
+                        break
+
+                if retried_success:
+                    pass
+                elif isinstance(last_exc, httpx.HTTPStatusError) and _is_main_authority_or_grace_error(last_exc):
+                    log_iwap_phase(
+                        "Phase 1",
+                        (
+                            f"start_round still blocked by main-validator authority/grace after retries for round_id={ctx.current_round_id}; "
+                            "keeping validator online in SHADOW/local-only mode for this round"
+                        ),
+                        level="warning",
+                        exc_info=False,
+                    )
+                    ctx._iwap_shadow_mode = True
+                    return
+                elif isinstance(last_exc, httpx.HTTPStatusError) and _parse_round_window_not_active(last_exc) is not None:
+                    current_block_seen, start_block_seen, end_block_seen = _parse_round_window_not_active(last_exc) or (None, None, None)
+                    log_iwap_phase(
+                        "Phase 1",
+                        (
+                            f"start_round still outside the active window after retries for round_id={ctx.current_round_id} "
+                            f"(current_block={current_block_seen}, start_block={start_block_seen}, end_block={end_block_seen}); "
+                            "keeping validator online and skipping IWAP writes for this round"
+                        ),
+                        level="warning",
+                        exc_info=False,
+                    )
+                    return
+                else:
+                    log_iwap_phase(
+                        "Phase 1",
+                        f"start_round failed for round_id={ctx.current_round_id}",
+                        level="error",
+                        exc_info=False,
+                    )
+                    ctx._iwap_offline_mode = True
+                    return
             else:
                 log_iwap_phase(
                     "Phase 1",
