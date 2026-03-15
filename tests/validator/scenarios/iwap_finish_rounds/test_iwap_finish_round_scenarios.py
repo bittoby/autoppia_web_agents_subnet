@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -13,19 +11,6 @@ from httpx import HTTPStatusError, Request, Response
 os.environ.setdefault("TESTING", "True")
 os.environ.setdefault("VALIDATOR_NAME", "Test Validator")
 os.environ.setdefault("VALIDATOR_IMAGE", "https://example.com/validator.png")
-
-if "bittensor" not in sys.modules:
-    bt_stub = types.ModuleType("bittensor")
-    bt_stub.logging = SimpleNamespace(
-        info=lambda *args, **kwargs: None,
-        warning=lambda *args, **kwargs: None,
-        error=lambda *args, **kwargs: None,
-        debug=lambda *args, **kwargs: None,
-        critical=lambda *args, **kwargs: None,
-        success=lambda *args, **kwargs: None,
-    )
-    bt_stub.utils = SimpleNamespace(RAO_PER_TAO=1_000_000_000)
-    sys.modules["bittensor"] = bt_stub
 
 from autoppia_web_agents_subnet.platform.utils.round_flow import finish_round_flow
 
