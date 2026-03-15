@@ -11,7 +11,7 @@ Tests verify that:
 from __future__ import annotations
 
 import contextlib
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -68,6 +68,7 @@ async def test_register_participating_miners_success():
     """Test successful registration of miners in IWAP."""
     ctx = MockContext()
     ctx.iwap_client.start_agent_run = AsyncMock(return_value={"status": "success"})
+    ctx._persist_round_checkpoint = Mock()
 
     await register_participating_miners_in_iwap(ctx)
 
@@ -90,6 +91,9 @@ async def test_register_participating_miners_success():
     assert second_call["agent_run"].miner_uid == 55
     assert second_call["miner_identity"].uid == 55
     assert second_call["miner_identity"].hotkey == "5Gx9a..."
+    persisted_reasons = [call.kwargs["reason"] for call in ctx._persist_round_checkpoint.call_args_list]
+    assert persisted_reasons.count("start_agent_run_started") == 2
+    assert persisted_reasons.count("start_agent_run_completed") == 2
 
 
 @pytest.mark.asyncio
@@ -154,6 +158,23 @@ async def test_register_miners_missing_handshake_data():
 
     # Should still call start_agent_run with None handshake_payload
     assert ctx.iwap_client.start_agent_run.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_register_miners_persists_checkpoint_for_reused_miner():
+    """Reused miners should still leave a durable checkpoint entry for crash forensics."""
+    ctx = MockContext()
+    ctx.active_miner_uids = [42, 55]
+    ctx.miners_reused_this_round = {42}
+    ctx._persist_round_checkpoint = Mock()
+    ctx.iwap_client.start_agent_run = AsyncMock(return_value={"status": "success"})
+
+    await register_participating_miners_in_iwap(ctx)
+
+    reuse_calls = [call.kwargs for call in ctx._persist_round_checkpoint.call_args_list if call.kwargs.get("reason") == "start_agent_run_skipped_reuse"]
+    assert len(reuse_calls) == 1
+    assert reuse_calls[0]["extra"]["miner_uid"] == 42
+    assert reuse_calls[0]["extra"]["reuse"] is True
 
 
 @pytest.mark.asyncio

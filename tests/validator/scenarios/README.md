@@ -75,6 +75,29 @@ Covered now:
 - main-validator grace errors trigger retries and then exit cleanly without crashing the validator
 - `leader_before/candidate/leader_after` snapshots are canonicalized from the final post-consensus miner payloads
 
+#### 6.1 IWAP start-round scenarios
+Folder: `iwap_start_rounds/`
+
+Covered now:
+
+- main validator happy path for `start_round` + `set_tasks`
+- authority/grace denial switches the validator to shadow mode instead of full offline mode
+- duplicate `start_round` is treated as idempotent
+- `round_number mismatch` forces IWAP offline for that round
+- `round window not active` forces IWAP offline for that round
+- backend `shadow_mode` responses update the local round id and still continue with `set_tasks`
+- duplicate `set_tasks` does not block the round from becoming IWAP-ready
+
+#### 6.2 IWAP finish-round control scenarios
+Folder: `iwap_finish_rounds/`
+
+Covered now:
+
+- offline-mode finish skips backend writes but still closes local state cleanly
+- normal finish persists a completed checkpoint
+- main-validator grace/authority errors retry and can still succeed later
+- generic primary finish failures fall back to a degraded payload instead of dropping the round
+
 #### 7. Version bump and artifact invalidation scenarios
 File: `test_version_bump_artifact_scenarios.py`
 

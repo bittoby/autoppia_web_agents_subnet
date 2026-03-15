@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -300,6 +301,111 @@ class ValidatorPlatformMixin:
         # Delegate to logging utility (keeps test compatibility with monkeypatching this method)
         log_iwap_phase(phase, message, level=level, exc_info=exc_info)
 
+    def _round_checkpoint_path(self, round_id: str | None = None) -> Path | None:
+        target_round_id = str(round_id or getattr(self, "current_round_id", "") or "").strip()
+        if not target_round_id:
+            return None
+
+        season_number, round_number = self._extract_round_numbers_from_round_id(target_round_id)
+        root_getter = getattr(self, "_state_summary_root", None)
+        try:
+            base = root_getter() if callable(root_getter) else Path(os.getenv("IWAP_BACKUP_DIR", "data"))
+        except Exception:
+            base = Path(os.getenv("IWAP_BACKUP_DIR", "data"))
+
+        base = Path(base)
+        if season_number is not None and round_number is not None:
+            base = base / f"season_{int(season_number)}" / f"round_{int(round_number)}"
+        base.mkdir(parents=True, exist_ok=True)
+        return base / "round_checkpoint.json"
+
+    def _persist_round_checkpoint(
+        self,
+        *,
+        reason: str,
+        status: str = "in_progress",
+        round_id: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> Path | None:
+        checkpoint_path = self._round_checkpoint_path(round_id)
+        if checkpoint_path is None:
+            return None
+
+        target_round_id = str(round_id or getattr(self, "current_round_id", "") or "").strip()
+        season_number, round_number = self._extract_round_numbers_from_round_id(target_round_id)
+        round_log_file = None
+        round_log_exists = False
+        round_log_size = 0
+        try:
+            from autoppia_web_agents_subnet.utils.logging import ColoredLogger
+
+            round_log_file = ColoredLogger.get_round_log_file()
+        except Exception:
+            round_log_file = None
+
+        if round_log_file:
+            try:
+                round_log_path = Path(round_log_file)
+                round_log_exists = round_log_path.exists()
+                if round_log_exists:
+                    round_log_size = int(round_log_path.stat().st_size)
+            except Exception:
+                round_log_exists = False
+                round_log_size = 0
+
+        phase_history_payload: list[dict[str, Any]] = []
+        round_manager = getattr(self, "round_manager", None)
+        for item in list(getattr(round_manager, "phase_history", []) or [])[-20:]:
+            phase = getattr(item, "phase", None)
+            phase_history_payload.append(
+                {
+                    "phase": getattr(phase, "name", str(phase)) if phase is not None else None,
+                    "block": getattr(item, "block", None),
+                    "note": getattr(item, "note", None),
+                    "entered_at": getattr(item, "entered_at", None),
+                }
+            )
+
+        current_agent_run_ids: dict[str, str] = {}
+        for uid, run in (getattr(self, "current_agent_runs", None) or {}).items():
+            agent_run_id = getattr(run, "agent_run_id", None)
+            if not agent_run_id:
+                continue
+            current_agent_run_ids[str(uid)] = str(agent_run_id)
+
+        payload = {
+            "version": 1,
+            "validator_round_id": target_round_id,
+            "season_number": season_number,
+            "round_number_in_season": round_number,
+            "validator_uid": getattr(self, "uid", None),
+            "validator_hotkey": getattr(getattr(getattr(self, "wallet", None), "hotkey", None), "ss58_address", None),
+            "status": str(status or "in_progress"),
+            "reason": str(reason or "unknown"),
+            "timestamp": time.time(),
+            "current_block": int(getattr(self, "block", 0) or 0),
+            "current_phase": getattr(getattr(round_manager, "current_phase", None), "name", str(getattr(round_manager, "current_phase", None) or "")),
+            "phase_history": phase_history_payload,
+            "active_miner_uids": sorted(int(uid) for uid in (getattr(self, "active_miner_uids", None) or [])),
+            "miners_reused_this_round": sorted(int(uid) for uid in (getattr(self, "miners_reused_this_round", None) or [])),
+            "eligibility_status_by_uid": {str(uid): status for uid, status in (getattr(self, "eligibility_status_by_uid", None) or {}).items()},
+            "current_agent_runs": current_agent_run_ids,
+            "round_log_file": round_log_file,
+            "round_log_exists": round_log_exists,
+            "round_log_size": round_log_size,
+            "last_round_log_upload_url": getattr(self, "_round_log_last_uploaded_url", None),
+            "last_round_log_upload_ts": getattr(self, "_round_log_last_upload_ts", 0.0),
+            "last_round_log_uploaded_size": getattr(self, "_round_log_last_uploaded_size", -1),
+            "extra": extra or {},
+        }
+
+        try:
+            checkpoint_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        except Exception:
+            bt.logging.warning(f"IWAP | Could not persist round checkpoint for {target_round_id}")
+            return None
+        return checkpoint_path
+
     async def _try_upload_round_log_checkpoint(
         self,
         *,
@@ -314,16 +420,50 @@ class ValidatorPlatformMixin:
         Settlement and forward paths should never crash just because the
         observability snapshot could not be uploaded.
         """
+        persist_checkpoint = getattr(self, "_persist_round_checkpoint", None)
+        if callable(persist_checkpoint):
+            with contextlib.suppress(Exception):
+                persist_checkpoint(
+                    reason=reason,
+                    status="checkpoint_requested",
+                    extra={
+                        "force": bool(force),
+                        "min_interval_seconds": float(min_interval_seconds) if min_interval_seconds is not None else None,
+                        "phase": phase,
+                    },
+                )
         uploader = getattr(self, "_upload_round_log_snapshot", None)
         if not callable(uploader):
             return None
         try:
-            return await uploader(
+            url = await uploader(
                 reason=reason,
                 force=force,
                 min_interval_seconds=min_interval_seconds,
             )
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(
+                        reason=reason,
+                        status="checkpoint_uploaded",
+                        extra={
+                            "phase": phase,
+                            "round_log_url": url,
+                        },
+                    )
+            return url
         except Exception as exc:
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(
+                        reason=reason,
+                        status="checkpoint_upload_failed",
+                        extra={
+                            "phase": phase,
+                            "error_type": type(exc).__name__,
+                            "error_message": str(exc),
+                        },
+                    )
             self._log_iwap_phase(
                 phase,
                 f"round-log checkpoint upload failed ({reason}): {type(exc).__name__}: {exc}",
@@ -537,6 +677,17 @@ class ValidatorPlatformMixin:
                 break
 
         if upload_exc is not None and not isinstance(url, str):
+            persist_checkpoint = getattr(self, "_persist_round_checkpoint", None)
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(
+                        reason=reason,
+                        status="round_log_upload_failed",
+                        extra={
+                            "error_type": type(upload_exc).__name__,
+                            "error_message": str(upload_exc),
+                        },
+                    )
             self._log_iwap_phase(
                 "Phase 5",
                 f"round-log upload failed ({reason}) for {round_id}: {type(upload_exc).__name__}: {upload_exc}",
@@ -549,6 +700,17 @@ class ValidatorPlatformMixin:
         self._round_log_last_uploaded_size = content_size
         if isinstance(url, str) and url.strip():
             self._round_log_last_uploaded_url = url.strip()
+            persist_checkpoint = getattr(self, "_persist_round_checkpoint", None)
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(
+                        reason=reason,
+                        status="round_log_uploaded",
+                        extra={
+                            "round_log_url": self._round_log_last_uploaded_url,
+                            "round_log_size": content_size,
+                        },
+                    )
             self._log_iwap_phase(
                 "Phase 5",
                 f"round-log uploaded ({reason}) for {round_id}",

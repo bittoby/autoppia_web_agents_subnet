@@ -343,6 +343,108 @@ def _pending_finish_dir(ctx) -> Path:
     return target
 
 
+def _round_checkpoint_files(ctx) -> list[Path]:
+    root_getter = getattr(ctx, "_state_summary_root", None)
+    base = root_getter() if callable(root_getter) else Path("data")
+    base = Path(base)
+    return sorted(base.glob("season_*/round_*/round_checkpoint.json"))
+
+
+async def _flush_pending_round_log_replays(ctx) -> None:
+    if getattr(ctx, "_iwap_offline_mode", False):
+        return
+
+    checkpoint_files = _round_checkpoint_files(ctx)
+    if not checkpoint_files:
+        return
+
+    from autoppia_web_agents_subnet.utils.logging import ColoredLogger
+
+    for checkpoint_file in checkpoint_files:
+        try:
+            payload = json.loads(checkpoint_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        status = str(payload.get("status", "") or "").strip().lower()
+        if status == "completed":
+            continue
+
+        validator_round_id = str(payload.get("validator_round_id", "") or "").strip()
+        if not validator_round_id:
+            continue
+
+        round_log_file = str(payload.get("round_log_file", "") or "").strip()
+        round_log_path = Path(round_log_file) if round_log_file else checkpoint_file.with_name("round.log")
+        if not round_log_path.exists():
+            continue
+
+        try:
+            content = round_log_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        content_size = len(content.encode("utf-8", errors="replace"))
+        last_uploaded_size = int(payload.get("last_round_log_uploaded_size", -1) or -1)
+        if content_size > 0 and last_uploaded_size == content_size and str(payload.get("last_round_log_upload_url", "") or "").strip():
+            continue
+
+        variants = ColoredLogger.build_round_log_upload_variants(content)
+        replay_url: str | None = None
+        replay_exc: Exception | None = None
+        for variant_label, variant_content in variants:
+            try:
+                replay_url = await ctx.iwap_client.upload_round_log(
+                    validator_round_id=validator_round_id,
+                    content=variant_content,
+                    season_number=payload.get("season_number"),
+                    round_number_in_season=payload.get("round_number_in_season"),
+                    validator_uid=payload.get("validator_uid"),
+                    validator_hotkey=payload.get("validator_hotkey"),
+                )
+                if variant_label != "full":
+                    log_iwap_phase(
+                        "Phase 5",
+                        f"pending round-log replay succeeded with truncated payload ({variant_label}) for {validator_round_id}",
+                        level="warning",
+                        exc_info=False,
+                    )
+                break
+            except httpx.HTTPStatusError as exc:
+                replay_exc = exc
+                status_code = exc.response.status_code if exc.response is not None else None
+                has_smaller_variant = variant_label != variants[-1][0]
+                if status_code == 413 and has_smaller_variant:
+                    log_iwap_phase(
+                        "Phase 5",
+                        f"pending round-log replay hit 413 ({variant_label}) for {validator_round_id}; retrying with a smaller tail payload",
+                        level="warning",
+                        exc_info=False,
+                    )
+                    continue
+                break
+            except Exception as exc:
+                replay_exc = exc
+                break
+
+        if replay_url:
+            payload["last_round_log_upload_url"] = replay_url
+            payload["last_round_log_uploaded_size"] = content_size
+            payload["replayed_at"] = time.time()
+            payload["replayed_from_startup"] = True
+            checkpoint_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            log_iwap_phase(
+                "Phase 5",
+                f"pending round-log replay flushed for round_id={validator_round_id}",
+                level="success",
+                exc_info=False,
+            )
+            continue
+
+        if replay_exc is not None:
+            bt.logging.warning(f"IWAP | pending round-log replay failed for {validator_round_id}: {type(replay_exc).__name__}: {replay_exc}")
+
+
 def _finish_request_to_jsonable(finish_request: Any) -> dict[str, Any]:
     if hasattr(finish_request, "to_payload"):
         payload = finish_request.to_payload()
@@ -413,6 +515,8 @@ async def _flush_pending_finish_requests(ctx) -> None:
 
 
 async def start_round_flow(ctx, *, current_block: int, n_tasks: int) -> None:
+    with contextlib.suppress(Exception):
+        await _flush_pending_round_log_replays(ctx)
     with contextlib.suppress(Exception):
         await _flush_pending_finish_requests(ctx)
     # Gate for downstream IWAP writes (start_agent_run/registration). Only set true once
@@ -786,6 +890,18 @@ async def register_participating_miners_in_iwap(ctx) -> None:
                 miner_uid,
                 {"reward": 0.0, "eval_score": 0.0, "execution_time": 0.0, "cost": 0.0, "tasks": 0},
             )
+            persist_checkpoint = getattr(ctx, "_persist_round_checkpoint", None)
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(
+                        reason="start_agent_run_skipped_reuse",
+                        status="registering_miners",
+                        extra={
+                            "miner_uid": int(miner_uid),
+                            "agent_run_id": str(agent_run_id),
+                            "reuse": True,
+                        },
+                    )
             log_iwap_phase(
                 "Phase 3",
                 f"Skipping start_agent_run for miner_uid={miner_uid}; keeping best historical run for this round",
@@ -809,6 +925,18 @@ async def register_participating_miners_in_iwap(ctx) -> None:
 
         try:
             start_agent_run_message = f"Calling start_agent_run for miner_uid={miner_uid}, agent_run_id={agent_run_id}"
+            persist_checkpoint = getattr(ctx, "_persist_round_checkpoint", None)
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(
+                        reason="start_agent_run_started",
+                        status="registering_miners",
+                        extra={
+                            "miner_uid": int(miner_uid),
+                            "agent_run_id": str(agent_run_id),
+                            "reuse": False,
+                        },
+                    )
             log_iwap_phase("Phase 3", start_agent_run_message)
             try:
                 await ctx.iwap_client.start_agent_run(
@@ -847,6 +975,16 @@ async def register_participating_miners_in_iwap(ctx) -> None:
                 )
             else:
                 start_agent_run_error = f"start_agent_run failed for miner_uid={miner_uid}, agent_run_id={agent_run_id}"
+                if callable(persist_checkpoint):
+                    with contextlib.suppress(Exception):
+                        persist_checkpoint(
+                            reason="start_agent_run_failed",
+                            status="registering_miners",
+                            extra={
+                                "miner_uid": int(miner_uid),
+                                "agent_run_id": str(agent_run_id),
+                            },
+                        )
                 log_iwap_phase(
                     "Phase 3",
                     start_agent_run_error,
@@ -856,10 +994,30 @@ async def register_participating_miners_in_iwap(ctx) -> None:
                 continue
         except Exception:
             start_agent_run_error = f"start_agent_run failed for miner_uid={miner_uid}, agent_run_id={agent_run_id}"
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(
+                        reason="start_agent_run_failed",
+                        status="registering_miners",
+                        extra={
+                            "miner_uid": int(miner_uid),
+                            "agent_run_id": str(agent_run_id),
+                        },
+                    )
             log_iwap_phase("Phase 3", start_agent_run_error, level="error", exc_info=False)
             continue
         else:
             start_agent_run_success = f"start_agent_run completed for miner_uid={miner_uid}, agent_run_id={agent_run_id}"
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(
+                        reason="start_agent_run_completed",
+                        status="registering_miners",
+                        extra={
+                            "miner_uid": int(miner_uid),
+                            "agent_run_id": str(agent_run_id),
+                        },
+                    )
             log_iwap_phase("Phase 3", start_agent_run_success, level="success")
             # Update local state for bookkeeping
             ctx.current_agent_runs[miner_uid] = agent_run
@@ -887,6 +1045,10 @@ async def finish_round_flow(
             "⚠️ OFFLINE MODE: Skipping finish_round backend call - cleaning up local state",
             level="warning",
         )
+        persist_checkpoint = getattr(ctx, "_persist_round_checkpoint", None)
+        if callable(persist_checkpoint):
+            with contextlib.suppress(Exception):
+                persist_checkpoint(reason="finish_round_offline", status="completed")
         ctx._reset_iwap_round_state()
         bt.logging.info("✅ Round completed locally - weights were set on-chain successfully")
         return True
@@ -1678,6 +1840,10 @@ async def finish_round_flow(
                     break
 
             if retried_success:
+                persist_checkpoint = getattr(ctx, "_persist_round_checkpoint", None)
+                if callable(persist_checkpoint):
+                    with contextlib.suppress(Exception):
+                        persist_checkpoint(reason="finish_round_completed", status="completed")
                 success = True
                 return success
 
@@ -1694,6 +1860,10 @@ async def finish_round_flow(
                     level="warning",
                     exc_info=False,
                 )
+                persist_checkpoint = getattr(ctx, "_persist_round_checkpoint", None)
+                if callable(persist_checkpoint):
+                    with contextlib.suppress(Exception):
+                        persist_checkpoint(reason="finish_round_pending", status="pending_finish")
                 success = False
                 return success
 
@@ -1719,6 +1889,10 @@ async def finish_round_flow(
                 finish_request=finish_request,
             )
             success = True
+            persist_checkpoint = getattr(ctx, "_persist_round_checkpoint", None)
+            if callable(persist_checkpoint):
+                with contextlib.suppress(Exception):
+                    persist_checkpoint(reason="finish_round_fallback_completed", status="completed")
             log_iwap_phase(
                 "Phase 5",
                 f"finish_round fallback succeeded for round_id={round_id}",
@@ -1736,6 +1910,10 @@ async def finish_round_flow(
                 level="error",
             )
     else:
+        persist_checkpoint = getattr(ctx, "_persist_round_checkpoint", None)
+        if callable(persist_checkpoint):
+            with contextlib.suppress(Exception):
+                persist_checkpoint(reason="finish_round_completed", status="completed")
         log_iwap_phase(
             "Phase 5",
             f"finish_round completed for round_id={round_id}",

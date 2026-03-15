@@ -10,6 +10,7 @@ from httpx import HTTPStatusError, Request, Response
 
 from autoppia_web_agents_subnet.platform.utils.round_flow import (
     _flush_pending_finish_requests,
+    _flush_pending_round_log_replays,
     finish_round_flow,
 )
 
@@ -334,6 +335,90 @@ async def test_pending_finish_payload_is_replayed_successfully_on_next_round_sta
 
     ctx.iwap_client.finish_round.assert_awaited_once()
     assert not pending_file.exists()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_pending_round_log_is_replayed_successfully_on_next_round_start(tmp_path):
+    """
+    Scenario:
+    The validator crashed before settlement completed, so only the round log and a
+    non-completed round checkpoint survived on disk.
+
+    What this test proves:
+    - the next startup replays that stale round log to IWAP/S3
+    - the checkpoint is updated with the replayed upload metadata
+    """
+    ctx = _make_finish_ctx(tmp_path)
+    ctx.iwap_client.upload_round_log = AsyncMock(return_value="https://logs.example/replayed-round.log")
+
+    round_dir = tmp_path / "state" / "season_1" / "round_2"
+    round_dir.mkdir(parents=True, exist_ok=True)
+    round_log_path = round_dir / "round.log"
+    round_log_path.write_text("round log survived crash\n", encoding="utf-8")
+    checkpoint_path = round_dir / "round_checkpoint.json"
+    checkpoint_path.write_text(
+        json.dumps(
+            {
+                "validator_round_id": "validator_round_1_2_crash",
+                "season_number": 1,
+                "round_number_in_season": 2,
+                "validator_uid": 71,
+                "validator_hotkey": "5C5hkvYV...",
+                "status": "registering_miners",
+                "round_log_file": str(round_log_path),
+                "last_round_log_uploaded_size": -1,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    await _flush_pending_round_log_replays(ctx)
+
+    ctx.iwap_client.upload_round_log.assert_awaited_once()
+    payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert payload["last_round_log_upload_url"] == "https://logs.example/replayed-round.log"
+    assert payload["replayed_from_startup"] is True
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_completed_round_checkpoint_is_not_replayed_again(tmp_path):
+    """
+    Scenario:
+    A finished round left behind its checkpoint on disk.
+
+    What this test proves:
+    completed checkpoints are ignored by the startup replay helper, so we do not
+    keep re-uploading old round logs forever.
+    """
+    ctx = _make_finish_ctx(tmp_path)
+    ctx.iwap_client.upload_round_log = AsyncMock(return_value="https://logs.example/should-not-upload.log")
+
+    round_dir = tmp_path / "state" / "season_1" / "round_1"
+    round_dir.mkdir(parents=True, exist_ok=True)
+    (round_dir / "round.log").write_text("finished round log\n", encoding="utf-8")
+    (round_dir / "round_checkpoint.json").write_text(
+        json.dumps(
+            {
+                "validator_round_id": "validator_round_1_1_done",
+                "season_number": 1,
+                "round_number_in_season": 1,
+                "validator_uid": 83,
+                "status": "completed",
+                "round_log_file": str(round_dir / "round.log"),
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    await _flush_pending_round_log_replays(ctx)
+
+    ctx.iwap_client.upload_round_log.assert_not_called()
 
 
 @pytest.mark.integration
