@@ -91,12 +91,11 @@ class ValidatorSettlementMixin:
                 f"Round ended before settlement (block {current_block} > {round_end_block}); skipping IPFS/consensus/finish/set_weights for this round.",
                 ColoredLogger.YELLOW,
             )
-            try:
-                uploader = getattr(self, "_upload_round_log_snapshot", None)
-                if callable(uploader):
-                    await uploader(reason="settlement_late_skip", force=True, min_interval_seconds=0.0)
-            except Exception:
-                pass
+            await self._try_upload_round_log_checkpoint(
+                reason="settlement_late_skip",
+                force=True,
+                min_interval_seconds=0.0,
+            )
             self.round_manager.enter_phase(
                 RoundPhase.COMPLETE,
                 block=current_block,
@@ -144,6 +143,11 @@ class ValidatorSettlementMixin:
             st = await self._get_async_subtensor()
             # Snapshot payloads are built from current/best run data inside publish_round_snapshot().
             await publish_round_snapshot(self, st=st, scores={})
+            await self._try_upload_round_log_checkpoint(
+                reason="settlement_snapshot_published",
+                force=True,
+                min_interval_seconds=0.0,
+            )
 
             fetch_fraction = float(
                 getattr(
@@ -173,6 +177,11 @@ class ValidatorSettlementMixin:
                 target_block=fetch_block,
                 target_description=f"consensus fetch block ({fetch_fraction:.0%} of round)",
             )
+            await self._try_upload_round_log_checkpoint(
+                reason="settlement_fetch_block_reached",
+                force=True,
+                min_interval_seconds=0.0,
+            )
 
             try:
                 scores, details = await aggregate_scores_from_commitments(self, st=st)
@@ -180,12 +189,27 @@ class ValidatorSettlementMixin:
                 # (ipfs_downloaded + post_consensus_evaluation reporting).
                 self._agg_scores_cache = scores
                 self._agg_meta_cache = details
+                await self._try_upload_round_log_checkpoint(
+                    reason="settlement_consensus_aggregated",
+                    force=True,
+                    min_interval_seconds=0.0,
+                )
             except Exception as e:
                 ColoredLogger.error(f"Error aggregating scores from commitments: {e}", ColoredLogger.RED)
                 scores = {}
                 self._agg_scores_cache = {}
                 self._agg_meta_cache = {}
+                await self._try_upload_round_log_checkpoint(
+                    reason="settlement_consensus_failed",
+                    force=True,
+                    min_interval_seconds=0.0,
+                )
             await self._calculate_final_weights(consensus_rewards=scores)
+            await self._try_upload_round_log_checkpoint(
+                reason="settlement_weights_finalized",
+                force=True,
+                min_interval_seconds=0.0,
+            )
             self.round_manager.enter_phase(
                 RoundPhase.COMPLETE,
                 block=self.block,
@@ -235,6 +259,11 @@ class ValidatorSettlementMixin:
         consecutive_errors = 0
         while True:
             if time.monotonic() > deadline:
+                await self._try_upload_round_log_checkpoint(
+                    reason=f"wait_timeout:{target_description}",
+                    force=True,
+                    min_interval_seconds=0.0,
+                )
                 raise TimeoutError(f"Timed out waiting for {target_description} at block {target_block}; last observed block={current_block}")
             try:
                 current_block = self.get_current_block(fresh=True)
@@ -255,11 +284,21 @@ class ValidatorSettlementMixin:
                         (f"Waiting — {target_description} — ~{minutes_remaining:.1f}m left — holding until block {target_block}"),
                         ColoredLogger.BLUE,
                     )
+                    await self._try_upload_round_log_checkpoint(
+                        reason=f"wait_progress:{target_description}",
+                        force=False,
+                        min_interval_seconds=None,
+                    )
                     last_log_time = now
             except Exception as exc:
                 consecutive_errors += 1
                 bt.logging.warning(f"Failed to read current block during finalize wait: {exc}")
                 if consecutive_errors >= 5:
+                    await self._try_upload_round_log_checkpoint(
+                        reason=f"wait_block_read_failure:{target_description}",
+                        force=True,
+                        min_interval_seconds=0.0,
+                    )
                     raise RuntimeError(f"Failed to read current block 5 times while waiting for {target_description}") from exc
 
             await asyncio.sleep(12)
@@ -566,7 +605,7 @@ class ValidatorSettlementMixin:
 
         challenger_uid: int | None = None
         challenger_reward = 0.0
-        if eligible_uids:
+        if eligible_uids and reigning_uid is not None:
             ranked_uids = sorted(
                 (int(uid) for uid in eligible_uids),
                 key=lambda uid: (
@@ -575,16 +614,12 @@ class ValidatorSettlementMixin:
                 ),
                 reverse=True,
             )
-            if reigning_uid is not None:
-                for uid_i in ranked_uids:
-                    if int(uid_i) == int(reigning_uid):
-                        continue
-                    challenger_uid = int(uid_i)
-                    challenger_reward = float(best_by_miner.get(uid_i, 0.0) or 0.0)
-                    break
-            elif ranked_uids:
-                challenger_uid = int(ranked_uids[0])
-                challenger_reward = float(best_by_miner.get(challenger_uid, 0.0) or 0.0)
+            for uid_i in ranked_uids:
+                if int(uid_i) == int(reigning_uid):
+                    continue
+                challenger_uid = int(uid_i)
+                challenger_reward = float(best_by_miner.get(uid_i, 0.0) or 0.0)
+                break
 
         winner_uid: int | None = None
         winner_reward = 0.0

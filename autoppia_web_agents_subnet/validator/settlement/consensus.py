@@ -283,6 +283,21 @@ def _extract_current_run_metrics_from_payload(payload: dict[str, Any]) -> dict[i
     return metrics
 
 
+def _validator_payload_has_positive_best_run_signal(rewards: dict[int, float]) -> bool:
+    return any(float(reward) > 0.0 for reward in (rewards or {}).values())
+
+
+def _validator_payload_is_all_zero(rewards: dict[int, float]) -> bool:
+    return bool(rewards) and not _validator_payload_has_positive_best_run_signal(rewards)
+
+
+def _payload_declares_all_runs_zero(payload: dict[str, Any], rewards: dict[int, float]) -> bool:
+    summary = payload.get("summary")
+    if isinstance(summary, dict) and isinstance(summary.get("validator_all_runs_zero"), bool):
+        return bool(summary.get("validator_all_runs_zero"))
+    return _validator_payload_is_all_zero(rewards)
+
+
 def _summary_snapshot_from_run(uid: int | None, run_payload: dict[str, Any] | None, *, weight: float | None = None) -> dict[str, Any] | None:
     if uid is None:
         return None
@@ -376,9 +391,6 @@ def _build_local_round_summary(
             candidate_entry = miner
             candidate_run = best_run
             break
-    else:
-        candidate_entry = top_entry
-        candidate_run = top_run
 
     candidate_snapshot = None
     if isinstance(candidate_entry, dict):
@@ -408,6 +420,7 @@ def _build_local_round_summary(
         "round": int(round_number),
         "percentage_to_dethrone": float(percentage_to_dethrone),
         "dethroned": bool(dethroned),
+        "validator_all_runs_zero": bool(getattr(self, "_current_round_all_runs_zero", lambda: False)()),
         "leader_before_round": leader_before,
         "candidate_this_round": candidate_snapshot,
         "leader_after_round": leader_after,
@@ -650,6 +663,7 @@ async def aggregate_scores_from_commitments(
     skipped_ipfs = 0
     skipped_verification_fail = 0
     skipped_wrong_validator_version = 0
+    skipped_all_zero_when_others_positive = 0
     skipped_legacy_consensus_version_list: list[tuple[str, int]] = []  # (hk, version)
     skipped_wrong_season_list: list[tuple[str, int]] = []  # (hk, season_number)
     skipped_wrong_round_list: list[tuple[str, int]] = []  # (hk, round_number)
@@ -658,10 +672,12 @@ async def aggregate_scores_from_commitments(
     skipped_ipfs_list: list[tuple[str, str]] = []  # (hk, cid)
     skipped_verification_fail_list: list[tuple[str, str]] = []  # (hk, reason)
     skipped_wrong_validator_version_list: list[tuple[str, str]] = []  # (hk, payload_version)
+    skipped_all_zero_when_others_positive_list: list[tuple[str, str]] = []  # (hk, cid)
 
     fetched: list[tuple[str, str, float]] = []
     scores_by_validator: dict[str, dict[int, float]] = {}
     downloaded_payloads: list[dict[str, Any]] = []
+    compatible_payloads: list[dict[str, Any]] = []
 
     for hk, entry in (commits or {}).items():
         if not isinstance(entry, dict):
@@ -743,23 +759,62 @@ async def aggregate_scores_from_commitments(
             bt.logging.info(f"[CONSENSUS] Skip {hk[:12]}... | Reason: payload is not dict")
             continue
 
-        # También debe coincidir el validator_version del payload con el de este validator.
+        # Validator version must be compatible (same major.minor) to be included in consensus.
+        # Strict patch-level equality would isolate validators on minor version bumps.
         expected_validator_version = getattr(self, "version", None)
         if expected_validator_version is not None:
             payload_validator_version = payload.get("validator_version")
-            if payload_validator_version != expected_validator_version:
-                skipped_wrong_validator_version += 1
-                pv_str = str(payload_validator_version) if payload_validator_version is not None else "missing"
-                skipped_wrong_validator_version_list.append((hk, pv_str))
-                bt.logging.debug(f"⏭️ Skip {hk[:10]}…: wrong validator_version (payload has {pv_str}, need {expected_validator_version})")
-                continue
+            if payload_validator_version is not None:
+
+                def _major_minor(v: str) -> tuple[int, int]:
+                    try:
+                        parts = str(v).split(".")
+                        return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+                    except Exception:
+                        return (-1, -1)
+
+                if _major_minor(payload_validator_version) != _major_minor(expected_validator_version):
+                    skipped_wrong_validator_version += 1
+                    pv_str = str(payload_validator_version)
+                    skipped_wrong_validator_version_list.append((hk, pv_str))
+                    bt.logging.debug(f"⏭️ Skip {hk[:10]}…: incompatible validator_version (payload has {pv_str}, need major.minor={'.'.join(str(x) for x in _major_minor(expected_validator_version))})")
+                    continue
 
         rewards, miner_metrics = _extract_metrics_from_payload(payload)
         current_run_metrics = _extract_current_run_metrics_from_payload(payload)
         if not isinstance(rewards, dict) or not rewards:
             continue
+        compatible_payloads.append(
+            {
+                "hotkey": hk,
+                "uid": (int(validator_uid) if isinstance(validator_uid, int) else validator_uid),
+                "stake": float(st_val),
+                "cid": cid,
+                "payload": payload,
+                "rewards": rewards,
+                "miner_metrics": miner_metrics,
+                "current_run_metrics": current_run_metrics,
+            }
+        )
 
-        # Record each validator's published per-miner reward map (converted to int uid).
+    has_positive_best_run_signal = any(_validator_payload_has_positive_best_run_signal(entry["rewards"]) for entry in compatible_payloads)
+
+    for entry in compatible_payloads:
+        hk = str(entry["hotkey"])
+        cid = str(entry["cid"])
+        st_val = float(entry["stake"])
+        validator_uid = entry["uid"]
+        rewards = entry["rewards"]
+        miner_metrics = entry["miner_metrics"]
+        current_run_metrics = entry["current_run_metrics"]
+        payload = entry["payload"]
+
+        if has_positive_best_run_signal and _payload_declares_all_runs_zero(payload, rewards):
+            skipped_all_zero_when_others_positive += 1
+            skipped_all_zero_when_others_positive_list.append((hk, cid))
+            bt.logging.debug(f"⏭️ Skip {hk[:10]}…: all miners published reward=0/null while other validators have positive best_run signal")
+            continue
+
         per_val_map: dict[int, float] = {}
         effective_weight = st_val if st_val > 0.0 else 1.0
         for uid_s, sc in rewards.items():
@@ -886,10 +941,9 @@ async def aggregate_scores_from_commitments(
         included += 1
         fetched.append((hk, cid, st_val))
         scores_by_validator[hk] = per_val_map
-        # Keep normalized download metadata for later IWAP finish_round payloads.
         downloaded_payloads.append(
             {
-                "uid": (int(validator_uid) if isinstance(validator_uid, int) else validator_uid),
+                "uid": validator_uid,
                 "validator_hotkey": hk,
                 "stake": float(st_val),
                 "cid": cid,
@@ -958,6 +1012,7 @@ async def aggregate_scores_from_commitments(
             f"Low stake: {skipped_low_stake} | "
             f"IPFS fail: {skipped_ipfs} | "
             f"Wrong validator_version: {skipped_wrong_validator_version} | "
+            f"All-zero excluded: {skipped_all_zero_when_others_positive} | "
             f"Verify fail: {skipped_verification_fail} | "
         )
 
@@ -984,6 +1039,9 @@ async def aggregate_scores_from_commitments(
             if skipped_wrong_validator_version_list:
                 vv_str = ", ".join([f"{hk[:10]}…(payload={pv})" for hk, pv in skipped_wrong_validator_version_list])
                 bt.logging.debug(f"   ⏭️ Wrong-validator_version excluded: {vv_str}")
+            if skipped_all_zero_when_others_positive_list:
+                zero_str = ", ".join([f"{hk[:10]}…:{cid[:10]}…" for hk, cid in skipped_all_zero_when_others_positive_list])
+                bt.logging.debug(f"   ⏭️ All-zero excluded while others positive: {zero_str}")
         except Exception:
             pass
         if len(result) > 0:
@@ -1002,6 +1060,7 @@ async def aggregate_scores_from_commitments(
             f"Missing CID: {skipped_missing_cid} | "
             f"Low stake: {skipped_low_stake} | "
             f"IPFS fail: {skipped_ipfs} | "
+            f"All-zero excluded: {skipped_all_zero_when_others_positive} | "
             f"Verify fail: {skipped_verification_fail} | "
             f"Total commits: {len(commits or {})}"
         )
@@ -1023,6 +1082,7 @@ async def aggregate_scores_from_commitments(
             "low_stake": skipped_low_stake_list,
             "ipfs_fail": skipped_ipfs_list,
             "wrong_validator_version": skipped_wrong_validator_version_list,
+            "all_zero_when_others_positive": skipped_all_zero_when_others_positive_list,
             "verify_fail": skipped_verification_fail_list,
         },
     }

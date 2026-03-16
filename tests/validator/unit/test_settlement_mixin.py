@@ -103,6 +103,28 @@ class TestSettlementPhase:
                 call_args = dummy_validator._calculate_final_weights.call_args
                 assert call_args[1]["consensus_rewards"] == mock_scores
 
+    async def test_settlement_uploads_round_log_checkpoints_across_snapshot_consensus_and_weights(self, dummy_validator):
+        from tests.conftest import _bind_settlement_mixin
+
+        dummy_validator = _bind_settlement_mixin(dummy_validator)
+
+        dummy_validator._get_async_subtensor = AsyncMock(return_value=Mock())
+        dummy_validator._wait_until_specific_block = AsyncMock()
+        dummy_validator._calculate_final_weights = AsyncMock()
+        dummy_validator._try_upload_round_log_checkpoint = AsyncMock()
+
+        with patch("autoppia_web_agents_subnet.validator.settlement.mixin.publish_round_snapshot"):
+            with patch("autoppia_web_agents_subnet.validator.settlement.mixin.aggregate_scores_from_commitments") as mock_aggregate:
+                mock_aggregate.return_value = ({48: 0.42}, {"source": "test"})
+
+                await dummy_validator._run_settlement_phase(agents_evaluated=1)
+
+        reasons = [call.kwargs["reason"] for call in dummy_validator._try_upload_round_log_checkpoint.await_args_list]
+        assert "settlement_snapshot_published" in reasons
+        assert "settlement_fetch_block_reached" in reasons
+        assert "settlement_consensus_aggregated" in reasons
+        assert "settlement_weights_finalized" in reasons
+
     async def test_settlement_enters_complete_phase(self, dummy_validator):
         from tests.conftest import _bind_settlement_mixin
 
@@ -458,6 +480,50 @@ class TestWaitLogic:
 
                 # Should have entered WAITING phase
                 assert RoundPhase.WAITING in [t.phase for t in dummy_validator.round_manager.phase_history]
+
+    async def test_wait_uploads_round_log_checkpoints_during_progress_logs(self, dummy_validator):
+        from tests.conftest import _bind_settlement_mixin_with_wait
+
+        dummy_validator = _bind_settlement_mixin_with_wait(dummy_validator)
+        dummy_validator.block = 1000
+        dummy_validator.subtensor.get_current_block = Mock(side_effect=[1000, 1010, 1030])
+        dummy_validator._try_upload_round_log_checkpoint = AsyncMock()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with patch("time.time", side_effect=[0, 13, 26]):
+                await dummy_validator._wait_until_specific_block(target_block=1030, target_description="test block")
+
+        reasons = [call.kwargs["reason"] for call in dummy_validator._try_upload_round_log_checkpoint.await_args_list]
+        assert reasons == ["wait_progress:test block", "wait_progress:test block"]
+
+    async def test_wait_uploads_round_log_checkpoint_before_timeout(self, dummy_validator):
+        from tests.conftest import _bind_settlement_mixin_with_wait
+
+        dummy_validator = _bind_settlement_mixin_with_wait(dummy_validator)
+        dummy_validator.block = 1000
+        dummy_validator._try_upload_round_log_checkpoint = AsyncMock()
+
+        with patch("time.monotonic", side_effect=[0.0, 721.0]):
+            with pytest.raises(TimeoutError):
+                await dummy_validator._wait_until_specific_block(target_block=1020, target_description="test block")
+
+        dummy_validator._try_upload_round_log_checkpoint.assert_awaited_once()
+        assert dummy_validator._try_upload_round_log_checkpoint.await_args.kwargs["reason"] == "wait_timeout:test block"
+
+    async def test_wait_uploads_round_log_checkpoint_before_block_read_failure_raises(self, dummy_validator):
+        from tests.conftest import _bind_settlement_mixin_with_wait
+
+        dummy_validator = _bind_settlement_mixin_with_wait(dummy_validator)
+        dummy_validator.block = 1000
+        dummy_validator.subtensor.get_current_block = Mock(side_effect=[RuntimeError("rpc down")] * 5)
+        dummy_validator._try_upload_round_log_checkpoint = AsyncMock()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(RuntimeError, match="Failed to read current block 5 times"):
+                await dummy_validator._wait_until_specific_block(target_block=1020, target_description="test block")
+
+        dummy_validator._try_upload_round_log_checkpoint.assert_awaited_once()
+        assert dummy_validator._try_upload_round_log_checkpoint.await_args.kwargs["reason"] == "wait_block_read_failure:test block"
 
 
 @pytest.mark.unit
