@@ -44,8 +44,14 @@ def _make_validator(tmp_path: Path, *, version: str):
     validator = SimpleNamespace()
     validator.version = version
     validator.current_round_id = "validator_round_1_1_test"
-    validator.round_manager = SimpleNamespace(BLOCKS_PER_EPOCH=360)
-    validator.season_manager = SimpleNamespace(season_number=1, season_size_epochs=100.0)
+    validator.round_manager = SimpleNamespace(
+        BLOCKS_PER_EPOCH=int(getattr(validator_config, "BLOCKS_PER_EPOCH", 360)),
+        round_size_epochs=float(getattr(validator_config, "ROUND_SIZE_EPOCHS", 1.0)),
+    )
+    validator.season_manager = SimpleNamespace(
+        season_number=1,
+        season_size_epochs=float(getattr(validator_config, "SEASON_SIZE_EPOCHS", 0.0)),
+    )
     validator._season_competition_history = {1: {"summary": {"current_winner_uid": 48}}}
     validator._evaluated_commits_by_miner = {
         48: {
@@ -69,9 +75,9 @@ def _write_saved_context(tmp_path: Path, *, version: str, minimum_start_block: i
     if minimum_start_block is None:
         minimum_start_block = int(validator_config.MINIMUM_START_BLOCK)
     payload = {
-        "round_size_epochs": 5.0,
-        "season_size_epochs": 100.0,
-        "blocks_per_epoch": 360,
+        "round_size_epochs": float(getattr(validator_config, "ROUND_SIZE_EPOCHS", 1.0)),
+        "season_size_epochs": float(getattr(validator_config, "SEASON_SIZE_EPOCHS", 0.0)),
+        "blocks_per_epoch": int(getattr(validator_config, "BLOCKS_PER_EPOCH", 360)),
         "minimum_start_block": minimum_start_block,
         "minimum_validator_version": version,
     }
@@ -101,11 +107,11 @@ def _seed_season_artifacts_with_context(tmp_path: Path, *, version: str, minimum
     legacy_tasks_dir.mkdir(parents=True, exist_ok=True)
     (legacy_tasks_dir / "season_1_tasks.json").write_text('{"tasks": [1, 2, 3]}', encoding="utf-8")
     evaluation_context = {
-        "blocks_per_epoch": 360,
+        "blocks_per_epoch": int(getattr(validator_config, "BLOCKS_PER_EPOCH", 360)),
         "minimum_start_block": minimum_start_block,
         "minimum_validator_version": version,
-        "round_size_epochs": 5.0,
-        "season_size_epochs": 100.0,
+        "round_size_epochs": float(getattr(validator_config, "ROUND_SIZE_EPOCHS", 1.0)),
+        "season_size_epochs": float(getattr(validator_config, "SEASON_SIZE_EPOCHS", 0.0)),
     }
     context_json = json.dumps(evaluation_context, sort_keys=True, separators=(",", ":"))
     evaluation_context["evaluation_context_hash"] = f"sha256:{__import__('hashlib').sha256(context_json.encode('utf-8')).hexdigest()}"
