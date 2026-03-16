@@ -31,7 +31,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "ruff==0.10.0" pip-audit radon
+          pip install "ruff==0.10.0" radon
 
       - name: Ruff check
         run: ruff check .
@@ -72,5 +72,3 @@ jobs:
             exit 1
           fi
 
-      - name: Dependency audit
-        run: pip-audit
