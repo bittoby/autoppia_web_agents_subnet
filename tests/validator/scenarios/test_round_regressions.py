@@ -103,6 +103,13 @@ async def test_over_cost_stop_keeps_reward_normalized_by_total_tasks(dummy_valid
             "usage_details": {"tokens": {"openai": {"gpt-4.1": 120}}, "cost": {"openai": {"gpt-4.1": 0.06}}},
         }
     )
+    submitted_batches: list[dict] = []
+
+    async def _capture_batch(*, agent_uid, batch_eval_data):
+        submitted_batches.append({"agent_uid": agent_uid, "batch_eval_data": batch_eval_data})
+        return True
+
+    validator._submit_batch_evaluations_to_iwap = AsyncMock(side_effect=_capture_batch)
 
     with (
         patch.object(evaluation_mixin_module.ColoredLogger, "info"),
@@ -134,6 +141,9 @@ async def test_over_cost_stop_keeps_reward_normalized_by_total_tasks(dummy_valid
     assert run.average_execution_time == pytest.approx(10.0)
     assert run.metadata["average_cost"] == pytest.approx(0.06)
     assert run.zero_reason == "over_cost_limit"
+    assert submitted_batches
+    zero_reason_values = {item["zero_reason"] for batch in submitted_batches for item in batch["batch_eval_data"] if (item.get("score", 0.0) <= 0.0 or item.get("reward", 0.0) <= 0.0)}
+    assert zero_reason_values == {"over_cost_limit"}
 
 
 @pytest.mark.integration

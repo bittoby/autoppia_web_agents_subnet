@@ -86,6 +86,8 @@ class ValidatorEvaluationMixin:
             *,
             score: float,
             zero_reason: str | None = None,
+            early_stop_reason: str | None = None,
+            early_stop_message: str | None = None,
             register_commit: bool = True,
         ) -> None:
             """
@@ -109,11 +111,19 @@ class ValidatorEvaluationMixin:
             if finalized_score <= 0.0 and zero_reason:
                 with contextlib.suppress(Exception):
                     agent.zero_reason = zero_reason  # type: ignore[attr-defined]
+            if early_stop_reason:
+                with contextlib.suppress(Exception):
+                    agent.early_stop_reason = early_stop_reason  # type: ignore[attr-defined]
+            if early_stop_message:
+                with contextlib.suppress(Exception):
+                    agent.early_stop_message = early_stop_message  # type: ignore[attr-defined]
             try:
                 agent_uid = int(agent.uid)
                 run = getattr(self, "current_agent_runs", {}).get(agent_uid)
                 if run is not None:
                     run.zero_reason = zero_reason if finalized_score <= 0.0 else None
+                    run.early_stop_reason = early_stop_reason
+                    run.early_stop_message = early_stop_message
             except Exception:
                 pass
             try:
@@ -186,6 +196,8 @@ class ValidatorEvaluationMixin:
                             "success_tasks": success_tasks,
                             "failed_tasks": max(int(total_tasks or tasks or len(miner_rewards)) - success_tasks, 0),
                             "zero_reason": getattr(agent, "zero_reason", None),
+                            "early_stop_reason": getattr(agent, "early_stop_reason", None),
+                            "early_stop_message": getattr(agent, "early_stop_message", None),
                             "github_url": getattr(agent, "github_url", None),
                             "normalized_repo": getattr(agent, "normalized_repo", None),
                             "commit_sha": getattr(agent, "git_commit", None),
@@ -260,6 +272,7 @@ class ValidatorEvaluationMixin:
                 success_tasks = len([r for r in (getattr(round_manager, "round_rewards", {}) or {}).get(agent_uid, []) if float(r) >= 0.5])
                 failed_tasks = max(total_tasks_for_run - success_tasks, 0)
                 run.total_tasks = total_tasks_for_run
+                run.tasks_attempted = attempted_tasks
                 run.completed_tasks = success_tasks
                 run.failed_tasks = failed_tasks
                 run.total_reward = float(acc.get("reward", 0.0) or 0.0)
@@ -727,7 +740,10 @@ class ValidatorEvaluationMixin:
                         # Every zero-reward evaluation must carry a reason for downstream consistency.
                         zero_reason_task = None
                         if score_f <= 0.0 or reward <= 0.0:
-                            zero_reason_task = "task_timeout" if exec_time_s >= task_timeout_sec else "task_failed"
+                            if max_cost_per_task > 0.0 and cost >= max_cost_per_task - 1e-12:
+                                zero_reason_task = "over_cost_limit"
+                            else:
+                                zero_reason_task = "task_timeout" if exec_time_s >= task_timeout_sec else "task_failed"
                         _record_local_task_result(
                             agent_uid=int(agent.uid),
                             reward=float(reward),
@@ -794,6 +810,7 @@ class ValidatorEvaluationMixin:
             # Update agent score/evaluated state and increment the counter.
             if stop_for_cost_limit_streak:
                 avg_reward = (sum(rewards) / float(total_tasks)) if total_tasks > 0 else 0.0
+                early_stop_message = f"Stopped early after {tasks_evaluated_for_agent}/{total_tasks} tasks: {cost_limit_hits} tasks exceeded the per-task cost limit of ${max_cost_per_task:.2f}."
                 ColoredLogger.warning(
                     f"Agent {agent.uid} stopped after {tasks_evaluated_for_agent}/{total_tasks} evaluated tasks "
                     f"due to {cost_limit_hits} over-cost tasks (limit={cost_limit_exceed_count}); final reward={avg_reward:.4f}",
@@ -803,6 +820,8 @@ class ValidatorEvaluationMixin:
                     agent,
                     score=float(avg_reward),
                     zero_reason="over_cost_limit" if avg_reward <= 0.0 else None,
+                    early_stop_reason="over_cost_limit",
+                    early_stop_message=early_stop_message,
                 )
             else:
                 avg_reward = (sum(rewards) / float(total_tasks)) if total_tasks > 0 else 0.0
