@@ -84,7 +84,6 @@ jobs:
           fi
 
   pre-commit:
-    if: ${{ exists('.pre-commit-config.yaml') }}
     name: Pre-commit
     runs-on: ubuntu-latest
     steps:
