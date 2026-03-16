@@ -318,9 +318,12 @@ def test_current_run_payload_keeps_reward_normalized_by_total_tasks_after_early_
     assert payload["time"] == pytest.approx(80.0)
     assert payload["cost"] == pytest.approx(0.04)
     assert payload["tasks_received"] == 100
+    assert payload["tasks_attempted"] == 20
     assert payload["tasks_success"] == 7
     assert payload["failed_tasks"] == 93
     assert payload["zero_reason"] == "over_cost_limit"
+    assert payload["early_stop_reason"] == "over_cost_limit"
+    assert "20/100" in payload["early_stop_message"]
 
 
 @pytest.mark.integration
@@ -400,6 +403,7 @@ async def test_ipfs_snapshot_does_not_regress_to_partial_task_denominator_after_
     assert miner_payload["current_run"]["time"] == pytest.approx(80.0)
     assert miner_payload["current_run"]["cost"] == pytest.approx(0.04)
     assert miner_payload["current_run"]["tasks_received"] == 100
+    assert miner_payload["current_run"]["tasks_attempted"] == 20
     assert miner_payload["current_run"]["tasks_success"] == 7
     assert miner_payload["current_run"]["zero_reason"] == "over_cost_limit"
     assert miner_payload["best_run"]["reward"] == pytest.approx(0.063)

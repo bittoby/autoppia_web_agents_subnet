@@ -795,9 +795,12 @@ class ValidatorPlatformMixin:
                     "average_reward": avg_reward,
                     "average_execution_time": avg_time,
                     "total_tasks": total_tasks_for_run or len(miner_rewards),
+                    "tasks_attempted": attempted_tasks,
                     "success_tasks": success_tasks,
                     "failed_tasks": max((total_tasks_for_run or len(miner_rewards)) - success_tasks, 0),
                     "zero_reason": getattr(agent_for_uid, "zero_reason", None) if agent_for_uid else None,
+                    "early_stop_reason": getattr(agent_for_uid, "early_stop_reason", None) if agent_for_uid else None,
+                    "early_stop_message": getattr(agent_for_uid, "early_stop_message", None) if agent_for_uid else None,
                 }
         self.current_round_id = None
         self.current_round_tasks = {}
@@ -826,7 +829,27 @@ class ValidatorPlatformMixin:
         self._current_round_number = None
 
     @staticmethod
-    def _round_metrics_payload_from_stats(stats: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _derive_early_stop_fields(
+        *,
+        tasks_attempted: int,
+        tasks_received: int,
+        zero_reason: Any,
+        early_stop_reason: Any,
+        early_stop_message: Any,
+    ) -> tuple[str | None, str | None]:
+        derived_reason = str(early_stop_reason) if isinstance(early_stop_reason, str) and early_stop_reason.strip() else None
+        derived_message = str(early_stop_message) if isinstance(early_stop_message, str) and early_stop_message.strip() else None
+        if derived_reason or derived_message:
+            return derived_reason, derived_message
+        if zero_reason == "over_cost_limit" and tasks_attempted > 0 and tasks_received > tasks_attempted:
+            return (
+                "over_cost_limit",
+                (f"Stopped early after {tasks_attempted}/{tasks_received} tasks: too many tasks exceeded the per-task cost limit."),
+            )
+        return None, None
+
+    @classmethod
+    def _round_metrics_payload_from_stats(cls, stats: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(stats, dict):
             return None
         try:
@@ -835,21 +858,34 @@ class ValidatorPlatformMixin:
             avg_time = float(stats.get("average_execution_time", 0.0) or 0.0)
             avg_cost = float(stats.get("average_cost", 0.0) or 0.0)
             tasks_received = int(stats.get("total_tasks", 0) or 0)
+            tasks_attempted = int(stats.get("tasks_attempted", tasks_received) or 0)
             tasks_success = int(stats.get("success_tasks", 0) or 0)
         except Exception:
             return None
+        zero_reason = stats.get("zero_reason")
+        early_stop_reason, early_stop_message = cls._derive_early_stop_fields(
+            tasks_attempted=tasks_attempted,
+            tasks_received=tasks_received,
+            zero_reason=zero_reason,
+            early_stop_reason=stats.get("early_stop_reason"),
+            early_stop_message=stats.get("early_stop_message"),
+        )
         payload = {
             "reward": reward,
             "score": score,
             "time": avg_time,
             "cost": avg_cost,
             "tasks_received": tasks_received,
+            "tasks_attempted": tasks_attempted,
             "tasks_success": tasks_success,
             "github_url": stats.get("github_url"),
             "normalized_repo": stats.get("normalized_repo"),
             "commit_sha": stats.get("commit_sha"),
             "season": (int(stats["evaluated_season"]) if stats.get("evaluated_season") is not None else None),
             "round": (int(stats["evaluated_round"]) if stats.get("evaluated_round") is not None else None),
+            "zero_reason": zero_reason,
+            "early_stop_reason": early_stop_reason,
+            "early_stop_message": early_stop_message,
         }
         evaluation_context = stats.get("evaluation_context")
         if isinstance(evaluation_context, dict):
@@ -895,12 +931,21 @@ class ValidatorPlatformMixin:
             avg_cost = float(run_meta.get("average_cost", 0.0) or 0.0) if isinstance(run_meta, dict) else 0.0
         agent_info = (getattr(self, "agents_dict", None) or {}).get(uid)
         season_number, round_number_in_season = self._current_round_numbers()
+        zero_reason = getattr(run, "zero_reason", None)
+        early_stop_reason, early_stop_message = ValidatorPlatformMixin._derive_early_stop_fields(
+            tasks_attempted=attempted_tasks,
+            tasks_received=total_tasks,
+            zero_reason=zero_reason,
+            early_stop_reason=getattr(run, "early_stop_reason", None),
+            early_stop_message=getattr(run, "early_stop_message", None),
+        )
         return {
             "reward": avg_reward,
             "score": avg_score,
             "time": avg_time,
             "cost": avg_cost,
             "tasks_received": total_tasks,
+            "tasks_attempted": attempted_tasks,
             "tasks_success": success_tasks,
             "failed_tasks": failed_tasks,
             "github_url": getattr(agent_info, "github_url", None) if agent_info is not None else None,
@@ -908,7 +953,9 @@ class ValidatorPlatformMixin:
             "commit_sha": getattr(agent_info, "git_commit", None) if agent_info is not None else None,
             "season": season_number,
             "round": round_number_in_season,
-            "zero_reason": getattr(run, "zero_reason", None),
+            "zero_reason": zero_reason,
+            "early_stop_reason": early_stop_reason,
+            "early_stop_message": early_stop_message,
             "evaluation_context": self._evaluation_context_payload(),
         }
 

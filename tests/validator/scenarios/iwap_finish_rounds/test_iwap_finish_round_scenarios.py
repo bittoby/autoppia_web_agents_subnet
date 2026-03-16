@@ -49,8 +49,11 @@ def _make_finish_ctx(tmp_path: Path):
             "time": 10.0,
             "cost": 0.02,
             "tasks_received": 100,
+            "tasks_attempted": 67,
             "tasks_success": 40,
             "failed_tasks": 60,
+            "early_stop_reason": "over_cost_limit",
+            "early_stop_message": "Stopped early after 67/100 tasks: 10 tasks exceeded the per-task cost limit of $0.05.",
         }
     }
     ctx._best_run_payload_for_miner = lambda uid: ctx._best_runs.get(uid)

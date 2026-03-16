@@ -1394,6 +1394,7 @@ async def finish_round_flow(
             pass
 
         tasks_received = int(effective_run.get("tasks_received", 0) or 0)
+        tasks_attempted = int(effective_run.get("tasks_attempted", tasks_received) or 0)
         tasks_success = int(effective_run.get("tasks_success", 0) or 0)
         tasks_failed = int(max(tasks_received - tasks_success, 0))
         avg_time = float(effective_run.get("time", 0.0) or 0.0)
@@ -1405,6 +1406,7 @@ async def finish_round_flow(
             "avg_eval_time": avg_time,
             "avg_cost": avg_cost,
             "tasks_sent": tasks_received,
+            "tasks_attempted": tasks_attempted,
             "tasks_success": tasks_success,
             "tasks_failed": tasks_failed,
             "github_url": effective_run.get("github_url"),
@@ -1422,7 +1424,7 @@ async def finish_round_flow(
             "miner_uid": miner_uid,
             "miner_hotkey": miner_hotkey,
             "miner_name": miner_name,
-            "tasks_attempted": tasks_received,
+            "tasks_attempted": tasks_attempted,
             "tasks_completed": tasks_success,
             "tasks_failed": tasks_failed,
             "best_run": best_run,
@@ -1430,6 +1432,10 @@ async def finish_round_flow(
         }
         if current_run and current_run.get("zero_reason") is not None:
             miner_payload["zero_reason"] = current_run.get("zero_reason")
+        if current_run and current_run.get("early_stop_reason") is not None:
+            miner_payload["early_stop_reason"] = current_run.get("early_stop_reason")
+        if current_run and current_run.get("early_stop_message") is not None:
+            miner_payload["early_stop_message"] = current_run.get("early_stop_message")
         local_evaluation_miners.append(miner_payload)
 
     agent_run_summaries: list[iwa_models.FinishRoundAgentRunIWAP] = []
@@ -1450,10 +1456,12 @@ async def finish_round_flow(
                 miner_name=miner_name or f"Miner {miner_uid}",
                 avg_reward=float(current_run.get("reward", 0.0) or 0.0),
                 avg_evaluation_time=float(current_run.get("time", 0.0) or 0.0),
-                tasks_attempted=int(current_run.get("tasks_received", 0) or 0),
+                tasks_attempted=int(current_run.get("tasks_attempted", current_run.get("tasks_received", 0)) or 0),
                 tasks_completed=int(current_run.get("tasks_success", 0) or 0),
                 tasks_failed=int(current_run.get("failed_tasks", 0) or 0),
                 zero_reason=current_run.get("zero_reason"),
+                early_stop_reason=current_run.get("early_stop_reason"),
+                early_stop_message=current_run.get("early_stop_message"),
             )
         )
 
