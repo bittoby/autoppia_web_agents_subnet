@@ -189,6 +189,12 @@ class ValidatorSettlementMixin:
                 # (ipfs_downloaded + post_consensus_evaluation reporting).
                 self._agg_scores_cache = scores
                 self._agg_meta_cache = details
+                try:
+                    apply_reuse_policy = getattr(self, "_apply_post_consensus_reuse_policy", None)
+                    if callable(apply_reuse_policy):
+                        apply_reuse_policy(details)
+                except Exception:
+                    bt.logging.warning("Failed to apply post-consensus reuse policy", exc_info=True)
                 await self._try_upload_round_log_checkpoint(
                     reason="settlement_consensus_aggregated",
                     force=True,
