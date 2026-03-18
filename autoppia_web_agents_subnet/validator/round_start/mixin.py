@@ -18,6 +18,7 @@ from autoppia_web_agents_subnet.protocol import StartRoundSynapse
 from autoppia_web_agents_subnet.utils.log_colors import round_details_tag
 from autoppia_web_agents_subnet.utils.logging import ColoredLogger
 from autoppia_web_agents_subnet.validator.config import (
+    ENABLE_EVALUATION_COOLDOWN,
     EVALUATION_COOLDOWN_MAX_ROUNDS,
     EVALUATION_COOLDOWN_MIN_ROUNDS,
     EVALUATION_COOLDOWN_NO_RESPONSE_BADNESS,
@@ -118,6 +119,8 @@ def _is_cooldown_active(
     best_score_ever: float | None = None,
     handshake_responded: bool = True,
 ) -> bool:
+    if not ENABLE_EVALUATION_COOLDOWN:
+        return False
     if not isinstance(last_evaluated_round, int):
         return False
     effective_cooldown = _resolve_adaptive_cooldown_rounds(

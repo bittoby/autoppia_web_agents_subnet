@@ -277,6 +277,37 @@ class ValidatorPlatformMixin:
 
         return bool(inspected_uids)
 
+    def _effective_signal_all_runs_zero(self) -> bool:
+        """
+        Returns True only when the validator has no positive effective signal for any active miner.
+
+        Effective signal is what consensus should care about:
+        - current round run if it improved the miner
+        - otherwise the best historical run carried in the snapshot
+
+        This intentionally differs from `_current_round_all_runs_zero()`, which is still used for
+        local re-evaluation policy when the freshly evaluated round itself looks suspicious.
+        """
+        active_uids = getattr(self, "active_miner_uids", None) or set()
+        inspected_uids: set[int] = set()
+        for uid in list(active_uids):
+            try:
+                uid_i = int(uid)
+            except Exception:
+                continue
+            best_payload = self._best_run_payload_for_miner(uid_i)
+            if not isinstance(best_payload, dict):
+                continue
+            inspected_uids.add(uid_i)
+            try:
+                reward = float(best_payload.get("reward", 0.0) or 0.0)
+            except Exception:
+                reward = 0.0
+            if reward > 0.0:
+                return False
+
+        return bool(inspected_uids)
+
     def _mark_all_zero_round_for_re_evaluation(self) -> bool:
         season_number, round_number = self._current_round_numbers()
         if season_number is None or round_number is None:

@@ -293,8 +293,16 @@ def _validator_payload_is_all_zero(rewards: dict[int, float]) -> bool:
 
 def _payload_declares_all_runs_zero(payload: dict[str, Any], rewards: dict[int, float]) -> bool:
     summary = payload.get("summary")
-    if isinstance(summary, dict) and isinstance(summary.get("validator_all_runs_zero"), bool):
-        return bool(summary.get("validator_all_runs_zero"))
+    # Effective signal for consensus is based on published best_run rewards. A validator that carries
+    # a positive best_run from a previous round must not be excluded just because its current round
+    # had no fresh evaluations (e.g. miners in cooldown).
+    if _validator_payload_has_positive_best_run_signal(rewards):
+        return False
+    if isinstance(summary, dict):
+        if isinstance(summary.get("validator_all_runs_zero_effective_signal"), bool):
+            return bool(summary.get("validator_all_runs_zero_effective_signal"))
+        if isinstance(summary.get("validator_all_runs_zero"), bool):
+            return bool(summary.get("validator_all_runs_zero"))
     return _validator_payload_is_all_zero(rewards)
 
 
@@ -415,12 +423,18 @@ def _build_local_round_summary(
             else:
                 leader_after = leader_before
 
+    current_round_all_zero = bool(getattr(self, "_current_round_all_runs_zero", lambda: False)())
+    effective_signal_all_zero = bool(getattr(self, "_effective_signal_all_runs_zero", lambda: False)())
+
     return {
         "season": int(season_number),
         "round": int(round_number),
         "percentage_to_dethrone": float(percentage_to_dethrone),
         "dethroned": bool(dethroned),
-        "validator_all_runs_zero": bool(getattr(self, "_current_round_all_runs_zero", lambda: False)()),
+        # Backward-compatible alias: consensus should interpret this as the effective published signal.
+        "validator_all_runs_zero": effective_signal_all_zero,
+        "validator_all_runs_zero_current_round": current_round_all_zero,
+        "validator_all_runs_zero_effective_signal": effective_signal_all_zero,
         "leader_before_round": leader_before,
         "candidate_this_round": candidate_snapshot,
         "leader_after_round": leader_after,

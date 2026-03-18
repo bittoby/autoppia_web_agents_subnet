@@ -497,6 +497,61 @@ async def test_post_consensus_excludes_all_zero_validator_when_others_have_posit
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_post_consensus_keeps_validator_with_positive_best_run_even_if_summary_claims_all_zero(dummy_validator):
+    """
+    Scenario:
+    A validator had no fresh current-round evaluations because miners were in cooldown, so its payload
+    summary incorrectly says `validator_all_runs_zero=true`, but it still carries a positive `best_run`.
+
+    What this test proves:
+    consensus must keep that validator, because the effective signal it publishes is still positive.
+    """
+    validator = dummy_validator
+    _configure_consensus_validator(
+        validator,
+        version="16.0.0",
+        hotkeys=["hk-old", "hk-cooldown"],
+        stakes=[10000.0, 20000.0],
+    )
+
+    commits = {
+        "hk-old": {"v": 1, "s": 1, "r": 1, "c": "cid-1"},
+        "hk-cooldown": {"v": 1, "s": 1, "r": 1, "c": "cid-2"},
+    }
+    payload_old = _payload_for_miner(
+        uid=48,
+        validator_version="16.0.1",
+        best_run=_best_run(reward=0.20, score=0.20, time_s=20.0, cost=0.02, tasks_received=100, tasks_success=20),
+    )
+    payload_cooldown = _payload_for_miner(
+        uid=48,
+        validator_version="16.0.2",
+        best_run=_best_run(reward=0.22, score=0.22, time_s=22.0, cost=0.02, tasks_received=100, tasks_success=22),
+        current_run={"reward": 0.0, "score": 0.0, "time": 0.0, "cost": 0.0, "tasks_received": 0, "tasks_success": 0},
+    )
+    payload_cooldown["summary"] = {"validator_all_runs_zero": True}
+
+    with (
+        patch("autoppia_web_agents_subnet.validator.settlement.consensus.read_all_plain_commitments", new=AsyncMock(return_value=commits)),
+        patch(
+            "autoppia_web_agents_subnet.validator.settlement.consensus.get_json_async",
+            new=AsyncMock(side_effect=[(payload_old, None, None), (payload_cooldown, None, None)]),
+        ),
+    ):
+        consensus_rewards, details = await aggregate_scores_from_commitments(validator, st=Mock())
+
+    expected = (10000.0 * 0.20 + 20000.0 * 0.22) / 30000.0
+    assert consensus_rewards[48] == pytest.approx(expected)
+    assert details["stats_by_miner"][48]["avg_reward"] == pytest.approx(expected)
+    assert details["validators"] == [
+        {"hotkey": "hk-old", "uid": 0, "stake": 10000.0, "cid": "cid-1"},
+        {"hotkey": "hk-cooldown", "uid": 1, "stake": 20000.0, "cid": "cid-2"},
+    ]
+    assert details["skips"]["all_zero_when_others_positive"] == []
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_post_consensus_keeps_all_zero_validators_when_everyone_is_all_zero(dummy_validator):
     """
     Scenario:

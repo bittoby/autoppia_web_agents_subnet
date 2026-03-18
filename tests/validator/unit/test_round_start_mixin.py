@@ -412,6 +412,7 @@ class TestHandshake:
         dummy_validator.agents_dict = {1: existing}
 
         with (
+            patch("autoppia_web_agents_subnet.validator.round_start.mixin.ENABLE_EVALUATION_COOLDOWN", True),
             patch("autoppia_web_agents_subnet.validator.round_start.mixin.EVALUATION_COOLDOWN_MIN_ROUNDS", 1),
             patch("autoppia_web_agents_subnet.validator.round_start.mixin.EVALUATION_COOLDOWN_MAX_ROUNDS", 2),
             patch("autoppia_web_agents_subnet.validator.round_start.mixin.EVALUATION_COOLDOWN_NO_RESPONSE_BADNESS", 0.0),
@@ -440,6 +441,25 @@ class TestHandshake:
             pending_agent_info = dummy_validator.agents_queue.put.call_args.args[0]
             assert pending_agent_info.uid == 1
             assert pending_agent_info.github_url == "https://github.com/test/agent1/commit/new"
+
+    async def test_cooldown_feature_flag_disabled_returns_inactive(self, dummy_validator):
+        from autoppia_web_agents_subnet.validator.round_start.mixin import _is_cooldown_active
+
+        with (
+            patch("autoppia_web_agents_subnet.validator.round_start.mixin.ENABLE_EVALUATION_COOLDOWN", False),
+            patch("autoppia_web_agents_subnet.validator.round_start.mixin.EVALUATION_COOLDOWN_MIN_ROUNDS", 1),
+            patch("autoppia_web_agents_subnet.validator.round_start.mixin.EVALUATION_COOLDOWN_MAX_ROUNDS", 5),
+        ):
+            assert (
+                _is_cooldown_active(
+                    current_round=5,
+                    last_evaluated_round=4,
+                    miner_score=0.42,
+                    best_score_ever=1.0,
+                    handshake_responded=True,
+                )
+                is False
+            )
 
 
 @pytest.mark.unit
