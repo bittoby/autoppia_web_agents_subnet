@@ -71,6 +71,9 @@ class ValidatorPlatformMixin:
         self.agent_run_accumulators: dict[int, dict[str, float]] = {}
         # (repo, commit) already evaluated per miner -> persisted best-run candidate data.
         self._evaluated_commits_by_miner: dict[int, dict[str, dict[str, Any]]] = {}  # uid -> "repo|commit" -> {agent_run_id, ...stats}
+        self._disable_reuse_until: dict[str, Any] | None = None
+        self._pending_all_zero_round_policy: dict[str, Any] | None = None
+        self._last_all_zero_round_policy: dict[str, Any] | None = None
         # Track completed (miner_uid, task_id) to avoid duplicates
         self._completed_pairs: set[tuple[int, str]] = set()
         # Round-log periodic upload state (best effort, no hard dependency).
@@ -163,6 +166,7 @@ class ValidatorPlatformMixin:
             if isinstance(entry, dict):
                 candidates.append(entry)
 
+        valid_candidates: list[dict[str, Any]] = []
         for entry in candidates:
             if not entry.get("agent_run_id"):
                 continue
@@ -174,8 +178,31 @@ class ValidatorPlatformMixin:
                 total_tasks = 0
             if total_tasks <= 0:
                 continue
-            return entry
-        return None
+            valid_candidates.append(entry)
+
+        if not valid_candidates:
+            return None
+
+        def _candidate_key(entry: dict[str, Any]) -> tuple[float, float, float, int]:
+            try:
+                reward = float(entry.get("average_reward", entry.get("reward", 0.0)) or 0.0)
+            except Exception:
+                reward = 0.0
+            try:
+                score = float(entry.get("average_score", entry.get("score", 0.0)) or 0.0)
+            except Exception:
+                score = 0.0
+            try:
+                exec_time = float(entry.get("average_execution_time", entry.get("time", 0.0)) or 0.0)
+            except Exception:
+                exec_time = 0.0
+            try:
+                total_tasks = int(entry.get("total_tasks", 0) or 0)
+            except Exception:
+                total_tasks = 0
+            return (reward, score, -exec_time, total_tasks)
+
+        return max(valid_candidates, key=_candidate_key)
 
     def _purge_evaluated_commits_for_round(
         self,
@@ -279,23 +306,83 @@ class ValidatorPlatformMixin:
         if not inspected_uids:
             return False
 
-        purged = self._purge_evaluated_commits_for_round(
-            season_number=int(season_number),
-            round_number=int(round_number),
-            miner_uids=inspected_uids,
-        )
-        self._disable_reuse_until = {
+        self._pending_all_zero_round_policy = {
             "season": int(season_number),
-            "round": int(round_number) + 1,
-            "reason": "all_zero_round",
+            "round": int(round_number),
+            "miner_uids": sorted(inspected_uids),
         }
         self._last_all_zero_round_policy = {
             "season": int(season_number),
             "round": int(round_number),
             "miner_uids": sorted(inspected_uids),
-            "purged_entries": int(purged),
+            "purged_entries": 0,
+            "reuse_preserved": None,
+            "status": "pending_consensus",
         }
         return True
+
+    def _apply_post_consensus_reuse_policy(self, details: dict[str, Any] | None) -> bool:
+        pending = getattr(self, "_pending_all_zero_round_policy", None)
+        if not isinstance(pending, dict):
+            return False
+
+        try:
+            season_number = int(pending.get("season"))
+            round_number = int(pending.get("round"))
+        except Exception:
+            self._pending_all_zero_round_policy = None
+            return False
+
+        miner_uids_raw = pending.get("miner_uids") or []
+        miner_uids: set[int] = set()
+        for uid_raw in miner_uids_raw:
+            try:
+                miner_uids.add(int(uid_raw))
+            except Exception:
+                continue
+
+        skips = {}
+        if isinstance(details, dict):
+            raw_skips = details.get("skips")
+            if isinstance(raw_skips, dict):
+                skips = raw_skips
+
+        excluded_all_zero = skips.get("all_zero_when_others_positive") or []
+        validator_hotkey = str(getattr(getattr(getattr(self, "wallet", None), "hotkey", None), "ss58_address", "") or "")
+        excluded_by_consensus = False
+        if validator_hotkey and isinstance(excluded_all_zero, list):
+            for entry in excluded_all_zero:
+                if not isinstance(entry, tuple | list) or not entry:
+                    continue
+                hotkey = str(entry[0] or "")
+                if hotkey == validator_hotkey:
+                    excluded_by_consensus = True
+                    break
+
+        purged_entries = 0
+        if excluded_by_consensus:
+            purged_entries = self._purge_evaluated_commits_for_round(
+                season_number=season_number,
+                round_number=round_number,
+                miner_uids=miner_uids,
+            )
+            self._disable_reuse_until = {
+                "season": int(season_number),
+                "round": int(round_number) + 1,
+                "reason": "all_zero_excluded_by_consensus",
+                "miner_uids": sorted(miner_uids),
+            }
+
+        self._last_all_zero_round_policy = {
+            "season": int(season_number),
+            "round": int(round_number),
+            "miner_uids": sorted(miner_uids),
+            "purged_entries": int(purged_entries),
+            "reuse_preserved": not excluded_by_consensus,
+            "status": "excluded_by_consensus" if excluded_by_consensus else "preserved_after_consensus",
+        }
+        self._pending_all_zero_round_policy = None
+        return excluded_by_consensus
 
     def _log_iwap_phase(self, phase: str, message: str, *, level: str = "info", exc_info: bool = False) -> None:
         # Delegate to logging utility (keeps test compatibility with monkeypatching this method)

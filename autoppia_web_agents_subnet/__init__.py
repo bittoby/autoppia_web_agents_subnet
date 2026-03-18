@@ -1,6 +1,6 @@
-SUBNET_IWA_VERSION = "22.0.0"
+SUBNET_IWA_VERSION = "27.0.0"
 WEBS_DEMO_VERSION = "21.0.0"
-__least_acceptable_version__ = "14.0.0"
+__least_acceptable_version__ = "26.0.0"
 version_split = SUBNET_IWA_VERSION.split(".")
 version_url = "https://raw.githubusercontent.com/autoppia/autoppia_web_agents_subnet/main/autoppia_web_agents_subnet/__init__.py"
 

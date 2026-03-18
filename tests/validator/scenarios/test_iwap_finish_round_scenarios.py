@@ -547,6 +547,70 @@ async def test_finish_round_canonicalizes_summary_snapshots_from_best_run_consen
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_finish_round_uses_current_round_task_counts_for_post_consensus_snapshot(tmp_path):
+    """
+    Scenario:
+    A miner has a historical best run with much larger task counters than the
+    current round's run.
+
+    What this test proves:
+    the post-consensus snapshot for the current round must keep the current
+    round task counters and commit metadata instead of leaking the historical
+    best-run payload into `best_run_consensus`.
+    """
+    ctx = _make_finish_ctx(tmp_path)
+    ctx.active_miner_uids = {48}
+    ctx.current_agent_runs = {48: _make_agent_run("run-48")}
+    ctx._best_runs = {
+        48: {
+            "reward": 0.80,
+            "score": 0.80,
+            "time": 22.0,
+            "cost": 0.02,
+            "tasks_received": 325,
+            "tasks_success": 200,
+            "github_url": "https://github.com/example/repo/commit/historical",
+            "normalized_repo": "https://github.com/example/repo",
+            "commit_sha": "historical",
+        }
+    }
+    ctx._current_runs = {
+        48: {
+            "reward": 0.10,
+            "score": 0.10,
+            "time": 58.0,
+            "cost": 0.01,
+            "tasks_received": 25,
+            "tasks_success": 0,
+            "github_url": "https://github.com/example/repo/commit/current",
+            "normalized_repo": "https://github.com/example/repo",
+            "commit_sha": "current",
+        }
+    }
+    ctx._agg_scores_cache = {48: 0.0}
+    ctx._agg_meta_cache = {
+        "stats_by_miner": {48: {"avg_reward": 0.0, "avg_eval_score": 0.0, "avg_eval_time": 58.28, "avg_cost": 0.001, "tasks_sent": 25, "tasks_success": 0}},
+        "current_stats_by_miner": {48: {"avg_reward": 0.0, "avg_eval_score": 0.0, "avg_eval_time": 58.28, "avg_cost": 0.001, "tasks_sent": 25, "tasks_success": 0}},
+    }
+
+    await finish_round_flow(
+        ctx,
+        avg_rewards={48: 0.0},
+        final_weights={48: 1.0},
+        tasks_completed=0,
+    )
+
+    finish_request = ctx.iwap_client.finish_round.await_args.kwargs["finish_request"]
+    miner_payload = finish_request.post_consensus_evaluation["miners"][0]["best_run_consensus"]
+
+    assert miner_payload["tasks_received"] == 25
+    assert miner_payload["tasks_success"] == 0
+    assert miner_payload["commit_sha"] == "current"
+    assert miner_payload["github_url"] == "https://github.com/example/repo/commit/current"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_finish_round_first_round_cannot_keep_different_leader_after_when_no_leader_before(tmp_path):
     """
     Scenario:

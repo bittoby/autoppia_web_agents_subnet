@@ -19,6 +19,7 @@ def _bind_platform_helpers(validator):
     validator._current_round_all_runs_zero = ValidatorPlatformMixin._current_round_all_runs_zero.__get__(validator, type(validator))
     validator._purge_evaluated_commits_for_round = ValidatorPlatformMixin._purge_evaluated_commits_for_round.__get__(validator, type(validator))
     validator._mark_all_zero_round_for_re_evaluation = ValidatorPlatformMixin._mark_all_zero_round_for_re_evaluation.__get__(validator, type(validator))
+    validator._apply_post_consensus_reuse_policy = ValidatorPlatformMixin._apply_post_consensus_reuse_policy.__get__(validator, type(validator))
     validator._current_round_run_payload = ValidatorPlatformMixin._current_round_run_payload.__get__(validator, type(validator))
     validator._best_run_payload_for_miner = ValidatorPlatformMixin._best_run_payload_for_miner.__get__(validator, type(validator))
     return validator
@@ -469,16 +470,16 @@ async def test_ipfs_snapshot_marks_summary_all_runs_zero_when_every_local_run_is
 
 
 @pytest.mark.integration
-def test_all_zero_round_disables_reuse_next_round_and_purges_current_round_entries(dummy_validator):
+def test_all_zero_round_preserves_reuse_when_consensus_does_not_exclude_validator(dummy_validator):
     """
     Scenario:
     A validator finishes a round where every freshly evaluated miner ended with reward 0.
     This is the suspicious validator-wide failure pattern we want to protect against.
 
     What this test proves:
-    - the current round entries are purged from local reusable history
-    - the next round disables reuse even if the commit did not change
-    - older historical best runs are not deleted
+    - an all-zero round is only a pending signal during evaluation
+    - if post-consensus does not exclude this validator, reuse is preserved
+    - the next round still reuses when commit + evaluation context match
     """
     validator = _bind_platform_helpers(dummy_validator)
     validator.current_round_id = "validator_round_1_1_all_zero"
@@ -497,6 +498,7 @@ def test_all_zero_round_disables_reuse_next_round_and_purges_current_round_entri
         127: {"tasks": 100, "reward": 0.0, "eval_score": 0.0, "execution_time": 2500.0, "cost": 2.0},
     }
     validator.miners_reused_this_round = set()
+    validator._disable_reuse_until = None
     validator.agents_dict = {
         48: SimpleNamespace(github_url="https://github.com/example/miner48/commit/deadbeef", normalized_repo="https://github.com/example/miner48", git_commit="deadbeef"),
         127: SimpleNamespace(github_url="https://github.com/example/miner127/commit/cafebabe", normalized_repo="https://github.com/example/miner127", git_commit="cafebabe"),
@@ -504,7 +506,7 @@ def test_all_zero_round_disables_reuse_next_round_and_purges_current_round_entri
     matching_context = validator._evaluation_context_payload()
     validator._evaluated_commits_by_miner = {
         48: {
-            "old-good": {
+            "https://github.com/example/miner48|deadbeef": {
                 "agent_run_id": "agent-run-48-old",
                 "total_tasks": 100,
                 "average_reward": 0.42,
@@ -519,7 +521,7 @@ def test_all_zero_round_disables_reuse_next_round_and_purges_current_round_entri
                 "evaluated_round": 9,
                 "evaluation_context": matching_context,
             },
-            "this-round-zero": {
+            "https://github.com/example/miner48/commit/deadbeef": {
                 "agent_run_id": "agent-run-48-zero",
                 "total_tasks": 100,
                 "average_reward": 0.0,
@@ -540,12 +542,102 @@ def test_all_zero_round_disables_reuse_next_round_and_purges_current_round_entri
     applied = validator._mark_all_zero_round_for_re_evaluation()
 
     assert applied is True
-    assert validator._disable_reuse_until == {"season": 1, "round": 2, "reason": "all_zero_round"}
+    assert validator._disable_reuse_until is None
+    assert validator._pending_all_zero_round_policy["miner_uids"] == [48, 127]
+    assert validator._last_all_zero_round_policy["status"] == "pending_consensus"
+
+    excluded = validator._apply_post_consensus_reuse_policy({"skips": {"all_zero_when_others_positive": []}})
+
+    assert excluded is False
+    assert validator._disable_reuse_until is None
+    assert validator._pending_all_zero_round_policy is None
     assert validator._last_all_zero_round_policy["miner_uids"] == [48, 127]
-    assert "old-good" in validator._evaluated_commits_by_miner[48]
-    assert "this-round-zero" not in validator._evaluated_commits_by_miner[48]
+    assert validator._last_all_zero_round_policy["reuse_preserved"] is True
+    assert "https://github.com/example/miner48|deadbeef" in validator._evaluated_commits_by_miner[48]
+    assert "https://github.com/example/miner48/commit/deadbeef" in validator._evaluated_commits_by_miner[48]
 
     validator.current_round_id = "validator_round_1_2_all_zero"
+    reusable = validator._find_reusable_commit_stats(
+        uid=48,
+        github_url="https://github.com/example/miner48/commit/deadbeef",
+        normalized_repo="https://github.com/example/miner48",
+        commit_sha="deadbeef",
+    )
+    assert reusable is not None
+    assert reusable["agent_run_id"] == "agent-run-48-old"
+
+
+@pytest.mark.integration
+def test_all_zero_round_disables_reuse_next_round_when_consensus_excludes_validator(dummy_validator):
+    """
+    Scenario:
+    The validator published only zero scores, but other validators produced positive signal, so
+    consensus excludes this validator from the aggregate.
+
+    What this test proves:
+    - the validator records the all-zero round locally
+    - post-consensus exclusion disables reuse for the next round
+    - the next round will force a local re-evaluation even if commit + context match
+    """
+    validator = _bind_platform_helpers(dummy_validator)
+    validator.wallet.hotkey.ss58_address = "validator-hotkey-83"
+    validator.current_round_id = "validator_round_1_2_all_zero"
+    validator.round_manager = SimpleNamespace(round_rewards={48: [0.0] * 25})
+    validator.season_manager = SimpleNamespace(season_number=1)
+    validator.current_agent_runs = {
+        48: SimpleNamespace(
+            total_tasks=25,
+            completed_tasks=0,
+            failed_tasks=25,
+            average_reward=0.0,
+            average_score=0.0,
+            average_execution_time=180.0,
+            zero_reason="task_failed",
+            metadata={"average_cost": 0.0},
+        ),
+    }
+    validator.agent_run_accumulators = {
+        48: {"tasks": 25, "reward": 0.0, "eval_score": 0.0, "execution_time": 4500.0, "cost": 0.0},
+    }
+    validator.miners_reused_this_round = set()
+    validator._disable_reuse_until = None
+    matching_context = validator._evaluation_context_payload()
+    validator._evaluated_commits_by_miner = {
+        48: {
+            "https://github.com/example/miner48|deadbeef": {
+                "agent_run_id": "agent-run-48-old",
+                "total_tasks": 25,
+                "average_reward": 0.42,
+                "average_score": 0.42,
+                "average_execution_time": 22.0,
+                "average_cost": 0.02,
+                "success_tasks": 8,
+                "normalized_repo": "https://github.com/example/miner48",
+                "commit_sha": "deadbeef",
+                "github_url": "https://github.com/example/miner48/commit/deadbeef",
+                "evaluated_season": 1,
+                "evaluated_round": 1,
+                "evaluation_context": matching_context,
+            }
+        }
+    }
+
+    applied = validator._mark_all_zero_round_for_re_evaluation()
+
+    assert applied is True
+    excluded = validator._apply_post_consensus_reuse_policy({"skips": {"all_zero_when_others_positive": [("validator-hotkey-83", "cid-ours")]}})
+
+    assert excluded is True
+    assert validator._disable_reuse_until == {
+        "season": 1,
+        "round": 3,
+        "reason": "all_zero_excluded_by_consensus",
+        "miner_uids": [48],
+    }
+    assert validator._last_all_zero_round_policy["reuse_preserved"] is False
+    assert validator._last_all_zero_round_policy["status"] == "excluded_by_consensus"
+
+    validator.current_round_id = "validator_round_1_3_all_zero_follow_up"
     reusable = validator._find_reusable_commit_stats(
         uid=48,
         github_url="https://github.com/example/miner48/commit/deadbeef",
