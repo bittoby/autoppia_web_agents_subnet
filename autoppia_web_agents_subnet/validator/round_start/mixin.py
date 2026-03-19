@@ -369,6 +369,13 @@ class ValidatorRoundStartMixin:
             # New season = new tasks → re-evaluate all commits; clear "already evaluated" map.
             if hasattr(self, "_evaluated_commits_by_miner"):
                 self._evaluated_commits_by_miner = {}
+            # Per-season all-zero/reuse policy must not leak across season boundaries.
+            if hasattr(self, "_disable_reuse_until"):
+                self._disable_reuse_until = None
+            if hasattr(self, "_pending_all_zero_round_policy"):
+                self._pending_all_zero_round_policy = None
+            if hasattr(self, "_last_all_zero_round_policy"):
+                self._last_all_zero_round_policy = None
 
         current_block = self.block
         self.round_manager.start_new_round(current_block)

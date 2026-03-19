@@ -71,6 +71,26 @@ class TestRoundStart:
         # Should clear agents
         assert len(dummy_validator.agents_dict) == 0
 
+    async def test_season_transition_resets_reuse_and_all_zero_policies(self, dummy_validator):
+        from tests.conftest import _bind_round_start_mixin
+
+        dummy_validator = _bind_round_start_mixin(dummy_validator)
+
+        dummy_validator.block = 4600
+        dummy_validator.season_manager.should_start_new_season = Mock(return_value=True)
+        dummy_validator.season_manager.generate_season_tasks.reset_mock()
+        dummy_validator._evaluated_commits_by_miner = {48: {"repo|deadbeef": {"agent_run_id": "run-1"}}}
+        dummy_validator._disable_reuse_until = {"season": 1, "round": 3, "reason": "all_zero_excluded_by_consensus"}
+        dummy_validator._pending_all_zero_round_policy = {"season": 1, "round": 2, "miner_uids": [48]}
+        dummy_validator._last_all_zero_round_policy = {"season": 1, "round": 2, "status": "excluded_by_consensus"}
+
+        await dummy_validator._start_round()
+
+        assert dummy_validator._evaluated_commits_by_miner == {}
+        assert dummy_validator._disable_reuse_until is None
+        assert dummy_validator._pending_all_zero_round_policy is None
+        assert dummy_validator._last_all_zero_round_policy is None
+
     async def test_round_manager_start_new_round_is_called(self, dummy_validator):
         from tests.conftest import _bind_round_start_mixin
 

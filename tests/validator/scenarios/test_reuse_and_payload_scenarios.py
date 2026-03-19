@@ -263,7 +263,24 @@ async def test_ipfs_snapshot_matches_local_best_and_current_run_payloads(dummy_v
 
     assert miner_payload["best_run"]["reward"] == pytest.approx(0.7)
     assert miner_payload["best_run"]["tasks_received"] == 100
-    assert payload["summary"]["validator_all_runs_zero"] is False
+    assert "subnet_version" not in payload
+    assert payload["summary"]["validator_all_best_runs_zero"] is False
+    assert payload["summary"]["validator_all_current_runs_zero"] is False
+    assert "validator_all_runs_zero" not in payload["summary"]
+    assert "validator_all_runs_zero_current_round" not in payload["summary"]
+    assert "validator_all_runs_zero_effective_signal" not in payload["summary"]
+
+
+@pytest.mark.integration
+def test_effective_signal_all_runs_zero_is_true_when_active_miners_have_no_best_signal(dummy_validator):
+    validator = _bind_platform_helpers(dummy_validator)
+    validator.active_miner_uids = {48, 127}
+    validator.current_agent_runs = {}
+    validator.agent_run_accumulators = {}
+    validator.agents_dict = {}
+    validator._evaluated_commits_by_miner = {}
+
+    assert validator._effective_signal_all_runs_zero() is True
 
 
 @pytest.mark.integration
@@ -422,7 +439,7 @@ async def test_ipfs_snapshot_marks_summary_all_runs_zero_when_every_local_run_is
     The validator is about to publish a round snapshot where every local miner run ended at zero.
 
     What this test proves:
-    the snapshot summary carries an explicit `validator_all_runs_zero=true` flag so other validators
+    the snapshot summary carries explicit current-round and best-run all-zero flags so other validators
     can exclude this payload from consensus when they still have positive signal.
     """
     validator = _bind_platform_helpers(dummy_validator)
@@ -467,9 +484,11 @@ async def test_ipfs_snapshot_marks_summary_all_runs_zero_when_every_local_run_is
         cid = await publish_round_snapshot(validator, st=Mock(), scores={48: 0.0, 127: 0.0})
 
     assert cid == "QmCID"
-    assert captured_payloads[0]["summary"]["validator_all_runs_zero"] is True
-    assert captured_payloads[0]["summary"]["validator_all_runs_zero_current_round"] is True
-    assert captured_payloads[0]["summary"]["validator_all_runs_zero_effective_signal"] is True
+    assert captured_payloads[0]["summary"]["validator_all_current_runs_zero"] is True
+    assert captured_payloads[0]["summary"]["validator_all_best_runs_zero"] is True
+    assert "validator_all_runs_zero" not in captured_payloads[0]["summary"]
+    assert "validator_all_runs_zero_current_round" not in captured_payloads[0]["summary"]
+    assert "validator_all_runs_zero_effective_signal" not in captured_payloads[0]["summary"]
 
 
 @pytest.mark.integration
@@ -481,7 +500,7 @@ async def test_ipfs_snapshot_does_not_mark_all_zero_when_best_run_remains_positi
     but the validator still carries a positive best historical run for that same miner.
 
     What this test proves:
-    the published snapshot must not declare `validator_all_runs_zero=true` in this case, because the
+    the published snapshot must not declare `validator_all_best_runs_zero=true` in this case, because the
     validator still has effective positive signal that consensus should keep.
     """
     validator = _bind_platform_helpers(dummy_validator)
@@ -546,9 +565,11 @@ async def test_ipfs_snapshot_does_not_mark_all_zero_when_best_run_remains_positi
         cid = await publish_round_snapshot(validator, st=Mock(), scores={48: 0.22})
 
     assert cid == "QmCID"
-    assert captured_payloads[0]["summary"]["validator_all_runs_zero"] is False
-    assert captured_payloads[0]["summary"]["validator_all_runs_zero_current_round"] is True
-    assert captured_payloads[0]["summary"]["validator_all_runs_zero_effective_signal"] is False
+    assert captured_payloads[0]["summary"]["validator_all_current_runs_zero"] is True
+    assert captured_payloads[0]["summary"]["validator_all_best_runs_zero"] is False
+    assert "validator_all_runs_zero" not in captured_payloads[0]["summary"]
+    assert "validator_all_runs_zero_current_round" not in captured_payloads[0]["summary"]
+    assert "validator_all_runs_zero_effective_signal" not in captured_payloads[0]["summary"]
 
 
 @pytest.mark.integration
