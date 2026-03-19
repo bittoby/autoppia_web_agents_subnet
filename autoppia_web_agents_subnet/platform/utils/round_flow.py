@@ -350,6 +350,26 @@ def _extract_round_summary_v2(*, season_history: dict[Any, Any], season_number: 
     return None
 
 
+def _extract_previous_round_leader_after(
+    *,
+    season_history: dict[Any, Any],
+    season_number: int,
+    round_number_in_season: int,
+) -> dict[str, Any] | None:
+    previous_round = int(round_number_in_season) - 1
+    if previous_round <= 0:
+        return None
+    previous_summary = _extract_round_summary_v2(
+        season_history=season_history,
+        season_number=season_number,
+        round_number_in_season=previous_round,
+    )
+    if not isinstance(previous_summary, dict):
+        return None
+    leader_after = previous_summary.get("leader_after_round")
+    return dict(leader_after) if isinstance(leader_after, dict) else None
+
+
 def _canonicalize_consensus_snapshot(
     snapshot: dict[str, Any] | None,
     *,
@@ -417,6 +437,7 @@ def _normalize_post_consensus_leadership_summary(
     summary: dict[str, Any] | None,
     *,
     best_run_by_uid: dict[int, dict[str, Any]],
+    previous_leader_after: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized = dict(summary) if isinstance(summary, dict) else {}
     try:
@@ -424,10 +445,14 @@ def _normalize_post_consensus_leadership_summary(
     except Exception:
         required_improvement_pct = 0.05
 
-    leader_before = _canonicalize_consensus_snapshot(
-        normalized.get("leader_before_round"),
-        best_run_by_uid=best_run_by_uid,
-        preserve_reward=True,
+    leader_before = (
+        dict(previous_leader_after)
+        if isinstance(previous_leader_after, dict)
+        else _canonicalize_consensus_snapshot(
+            normalized.get("leader_before_round"),
+            best_run_by_uid=best_run_by_uid,
+            preserve_reward=True,
+        )
     )
     candidate = _canonicalize_consensus_snapshot(
         normalized.get("candidate_this_round"),
@@ -1914,6 +1939,11 @@ async def finish_round_flow(
             season_number=int(season_number_for_summary or 0),
             round_number_in_season=int(round_number_for_summary or 0),
         )
+        previous_leader_after = _extract_previous_round_leader_after(
+            season_history=getattr(ctx, "_season_competition_history", {}) or {},
+            season_number=int(season_number_for_summary or 0),
+            round_number_in_season=int(round_number_for_summary or 0),
+        )
         best_run_by_uid = {
             int(miner_payload.get("uid")): dict(miner_payload.get("best_run_consensus") or {})
             for miner_payload in post_consensus_miners
@@ -1924,6 +1954,7 @@ async def finish_round_flow(
             post_consensus_json_summary = _normalize_post_consensus_leadership_summary(
                 post_consensus_json_summary,
                 best_run_by_uid=best_run_by_uid,
+                previous_leader_after=previous_leader_after,
             )
 
         post_consensus_evaluation = {
